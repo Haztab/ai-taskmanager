@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  repoPath    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workstreams  Workstream[]
+  ideas        Idea[]
+  epics        Epic[]
+  tasks        Task[]
+}
+
+model Workstream {
+  id        String @id @default(cuid())
+  name      String
+  slug      String
+  color     String
+  projectId String
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+
+  @@unique([projectId, slug])
+}
+
+model Idea {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  category    String?
+  isPromoted  Boolean  @default(false)
+  projectId   String
+  epicId      String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  epic    Epic?   @relation(fields: [epicId], references: [id])
+}
+
+model Epic {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  projectId   String
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   Task[]
+  ideas   Idea[]
+}
+
+model Task {
+  id                 String   @id @default(cuid())
+  title              String
+  description        String?
+  userStory          String?
+  acceptanceCriteria String?  // JSON string
+  status             String   @default("backlog") // backlog, todo, in_progress, review, done
+  priority           Int      @default(3)          // 1=critical, 2=high, 3=medium, 4=low
+  estimatedEffort    String?                       // XS, S, M, L, XL
+  sortOrder          Int      @default(0)
+  branchName         String?
+  worktreePath       String?
+  projectId          String
+  epicId             String?
+  workstreamId       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  epic       Epic?       @relation(fields: [epicId], references: [id])
+  workstream Workstream? @relation(fields: [workstreamId], references: [id])
+
+  dependents   TaskDependency[] @relation("dependent")
+  dependencies TaskDependency[] @relation("dependency")
+  sessions     ClaudeSession[]
+}
+
+model TaskDependency {
+  id           String @id @default(cuid())
+  dependentId  String
+  dependencyId String
+
+  dependent  Task @relation("dependent", fields: [dependentId], references: [id], onDelete: Cascade)
+  dependency Task @relation("dependency", fields: [dependencyId], references: [id], onDelete: Cascade)
+
+  @@unique([dependentId, dependencyId])
+}
+
+model ClaudeSession {
+  id           String   @id @default(cuid())
+  taskId       String
+  prompt       String
+  plan         String?
+  output       String?
+  status       String   @default("running") // planning, running, completed, failed
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model TokenUsage {
+  id           String   @id @default(cuid())
+  source       String                        // api, claude-code
+  inputTokens  Int
+  outputTokens Int
+  model        String?
+  sessionId    String?
+  projectId    String?
+  createdAt    DateTime @default(now())
+}
+
+model AppSettings {
+  id     String @id @default("singleton")
+  dbMode String @default("mock") // mock, real
+}

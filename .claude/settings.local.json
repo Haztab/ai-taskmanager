@@ -14,7 +14,22 @@
       "Bash(cp -r /Users/qushay/Project/ai-taskmanager-temp/* /Users/qushay/Project/ai-taskmanager/)",
       "Bash(cp -r /Users/qushay/Project/ai-taskmanager-temp/.* /Users/qushay/Project/ai-taskmanager/)",
       "Bash(npm install:*)",
-      "Bash(npx shadcn@latest init -d)"
+      "Bash(npx shadcn@latest init -d)",
+      "Bash(npx shadcn@latest add card dialog input label textarea select badge tabs dropdown-menu separator scroll-area sheet tooltip avatar skeleton sonner -y)",
+      "Bash(npx prisma:*)",
+      "Bash(npx tsx:*)",
+      "Bash(node:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(find /Users/qushay/Project/ai-taskmanager/src/components/board -name *.tsx)",
+      "Bash(find /Users/qushay/Project/ai-taskmanager/src/hooks -name *.ts)",
+      "Bash(grep -r \"@/generated/prisma\\\\|from.*generated/prisma\" /Users/qushay/Project/ai-taskmanager/src/ --include=*.ts --include=*.tsx -l)",
+      "Bash(grep -r from.*@/lib/db /Users/qushay/Project/ai-taskmanager/src/app/api/ --include=*.ts -l)",
+      "Bash(npx next:*)",
+      "Bash(curl -s http://localhost:3000/api/projects)",
+      "Bash(curl -s \"http://localhost:3000/api/tasks?projectId=cmmvqihgc0000s2to4t4a86ed\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
     ]
   }
 }
