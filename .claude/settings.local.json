@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/qushay/Project/ai-taskmanager -type f -name .*)",
+      "Bash(npm --version)",
+      "Bash(pnpm --version)",
+      "Bash(git --version)",
+      "Bash(claude --version)",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-pnpm --turbopack)",
+      "Bash(npx create-next-app@latest ai-taskmanager-temp --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-pnpm --turbopack)",
+      "Bash(rm -rf /Users/qushay/Project/ai-taskmanager-temp)",
+      "Bash(yes)",
+      "Bash(npx create-next-app@latest ai-taskmanager-temp --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --turbopack)",
+      "Bash(cp -r /Users/qushay/Project/ai-taskmanager-temp/* /Users/qushay/Project/ai-taskmanager/)",
+      "Bash(cp -r /Users/qushay/Project/ai-taskmanager-temp/.* /Users/qushay/Project/ai-taskmanager/)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init -d)"
+    ]
+  }
+}
