@@ -36,7 +36,11 @@ export async function GET() {
       // CLI
       claudeCodeInstalled: cliInfo.available,
       claudeCodeAvailable: cliInfo.available && !!(cliInfo.account?.hasProFeatures),
-      claudeCodeLoggedIn: !!(cliInfo.account?.hasProFeatures),
+      claudeCodeLoggedIn: !!(settings.claudeOAuthAccessToken) ||  !!(cliInfo.account?.hasProFeatures),
+      // FE OAuth (independent from CLI)
+      feAuthLoggedIn: !!settings.claudeOAuthAccessToken,
+      feAuthEmail: settings.claudeOAuthEmail,
+      feAuthExpired: settings.claudeOAuthExpiresAt ? new Date(settings.claudeOAuthExpiresAt) < new Date() : false,
       claudeCodeVersion: cliInfo.version,
       claudeCodeBinaryPath: cliInfo.binaryPath,
       claudeCodeNodeVersion: cliInfo.nodeVersion,

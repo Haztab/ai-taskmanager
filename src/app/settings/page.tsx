@@ -34,12 +34,6 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-
-const AuthTerminal = dynamic(
-  () => import("@/components/terminal/auth-terminal").then((m) => m.AuthTerminal),
-  { ssr: false }
-);
 
 interface AppSettings {
   dbMode: string;
@@ -70,6 +64,9 @@ interface AppSettings {
     subscriptionType: string | null;
     apiProvider: string | null;
   } | null;
+  feAuthLoggedIn: boolean;
+  feAuthEmail: string | null;
+  feAuthExpired: boolean;
   databaseUrl: string;
 }
 
@@ -97,7 +94,8 @@ export default function GlobalSettingsPage() {
   const [cliResult, setCliResult] = useState<TestResult | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showAuthTerminal, setShowAuthTerminal] = useState(false);
+  const [loginStep, setLoginStep] = useState<"idle" | "waiting" | "exchanging">("idle");
+  const [authCode, setAuthCode] = useState("");
 
   const { data: settings, isLoading } = useQuery<AppSettings>({
     queryKey: ["app-settings"],
@@ -161,10 +159,48 @@ export default function GlobalSettingsPage() {
     toast.success("Claude Code connection removed");
   };
 
-  const handleAuthSuccess = async () => {
-    setShowAuthTerminal(false);
-    await queryClient.refetchQueries({ queryKey: ["app-settings"] });
-    toast.success("Successfully authenticated!");
+  const handleLogin = async () => {
+    try {
+      const res = await fetch("/api/settings/claude-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login" }),
+      });
+      const data = await res.json();
+      if (data.authUrl) {
+        setLoginStep("waiting");
+        window.open(data.authUrl, "_blank");
+      } else {
+        toast.error("Failed to start login");
+      }
+    } catch {
+      toast.error("Failed to start login");
+    }
+  };
+
+  const handleExchangeCode = async () => {
+    if (!authCode.trim()) return;
+    setLoginStep("exchanging");
+    try {
+      const res = await fetch("/api/settings/claude-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "exchange", code: authCode.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setLoginStep("idle");
+        setAuthCode("");
+        await queryClient.refetchQueries({ queryKey: ["app-settings"] });
+        toast.success("Successfully authenticated!");
+      } else {
+        toast.error(data.error || "Failed to exchange code");
+        setLoginStep("waiting");
+      }
+    } catch {
+      toast.error("Failed to exchange code");
+      setLoginStep("waiting");
+    }
   };
 
   const handleLogout = async () => {
@@ -401,12 +437,12 @@ export default function GlobalSettingsPage() {
                 <Badge
                   variant="secondary"
                   className={`text-[11px] border ${
-                    settings?.claudeCodeLoggedIn
+                    settings?.feAuthLoggedIn
                       ? "bg-[#30a46c]/10 text-[#30a46c] border-[#30a46c]/20"
                       : "bg-[#e5484d]/10 text-[#e5484d] border-[#e5484d]/20"
                   }`}
                 >
-                  {settings?.claudeCodeLoggedIn ? (
+                  {settings?.feAuthLoggedIn ? (
                     <><CheckCircle2 className="w-3 h-3 mr-1" />Connected</>
                   ) : (
                     <><XCircle className="w-3 h-3 mr-1" />Disconnected</>
@@ -417,7 +453,7 @@ export default function GlobalSettingsPage() {
 
             <div className="px-6 py-5 space-y-5">
               {/* Connection status + account info */}
-              {settings?.claudeCodeLoggedIn ? (
+              {settings?.feAuthLoggedIn ? (
                 <div className="bg-[#fafafa] rounded-lg border border-[#f0f0f3] overflow-hidden">
                   {/* Account info header */}
                   <div className="px-4 py-3 border-b border-[#f0f0f3] flex items-center justify-between">
@@ -482,10 +518,10 @@ export default function GlobalSettingsPage() {
                         {settings.claudeCodeBinaryPath || "—"}
                       </p>
                     </div>
-                    {settings.claudeCodeAccount?.email && (
+                    {(settings.feAuthEmail || settings.claudeCodeAccount?.email) && (
                       <div className="col-span-2">
                         <span className="text-[11px] text-[#a0a0a8]">Account Email</span>
-                        <p className="font-medium">{settings.claudeCodeAccount.email}</p>
+                        <p className="font-medium">{settings.feAuthEmail || settings.claudeCodeAccount?.email}</p>
                       </div>
                     )}
                     {settings.claudeCodeAccount?.subscriptionType && (
@@ -552,7 +588,8 @@ export default function GlobalSettingsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {!showAuthTerminal ? (
+                  {/* Idle — show login button */}
+                  {loginStep === "idle" && (
                     <div className="text-center py-6 space-y-4">
                       <div className="w-14 h-14 rounded-xl bg-[#f0f0f3] flex items-center justify-center mx-auto">
                         <Terminal className="w-7 h-7 text-[#a0a0a8]" />
@@ -562,32 +599,77 @@ export default function GlobalSettingsPage() {
                           Connect Claude Code
                         </p>
                         <p className="text-[13px] text-[#6e6e80] max-w-sm mx-auto">
-                          Sign in with your Anthropic account to enable AI code execution in worktrees.
+                          Sign in with your Anthropic account to enable AI code execution.
+                          This login is independent from your terminal/device login.
                         </p>
                       </div>
-                      <Button onClick={() => setShowAuthTerminal(true)} className="gap-2">
+                      <Button onClick={handleLogin} className="gap-2">
                         <LogIn className="w-4 h-4" />
                         Login with Anthropic
                       </Button>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[13px] text-[#6e6e80]">
-                          Complete the login in the terminal below. A browser window will open for authentication.
-                        </p>
+                  )}
+
+                  {/* Waiting for code */}
+                  {(loginStep === "waiting" || loginStep === "exchanging") && (
+                    <div className="border border-[#5b5bd6]/20 bg-[#5b5bd6]/[0.03] rounded-lg overflow-hidden">
+                      <div className="px-5 py-4 space-y-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-full bg-[#30a46c] text-white flex items-center justify-center shrink-0">
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <p className="text-[14px] font-semibold text-[#0a0a0a]">
+                              Browser opened — sign in with Anthropic
+                            </p>
+                            <p className="text-[12px] text-[#6e6e80]">
+                              After signing in, copy the code shown and paste it below.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <Input
+                            type="text"
+                            value={authCode}
+                            onChange={(e) => setAuthCode(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && authCode.trim() && loginStep === "waiting") {
+                                handleExchangeCode();
+                              }
+                            }}
+                            placeholder="Paste authorization code here..."
+                            className="font-mono text-[13px]"
+                            autoFocus
+                            disabled={loginStep === "exchanging"}
+                          />
+                          <Button
+                            onClick={handleExchangeCode}
+                            disabled={!authCode.trim() || loginStep === "exchanging"}
+                            className="gap-1.5 shrink-0"
+                          >
+                            {loginStep === "exchanging" ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Check className="w-4 h-4" />
+                            )}
+                            {loginStep === "exchanging" ? "Verifying..." : "Connect"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="px-5 py-3 border-t border-[#5b5bd6]/10 flex justify-end">
                         <Button
                           variant="ghost"
                           size="xs"
-                          onClick={() => setShowAuthTerminal(false)}
+                          onClick={() => {
+                            setLoginStep("idle");
+                            setAuthCode("");
+                          }}
                         >
                           Cancel
                         </Button>
                       </div>
-                      <AuthTerminal
-                        onSuccess={handleAuthSuccess}
-                        onClose={() => setShowAuthTerminal(false)}
-                      />
                     </div>
                   )}
                 </div>
@@ -669,7 +751,7 @@ export default function GlobalSettingsPage() {
               )}
 
               {/* Install instructions */}
-              {!settings?.claudeCodeLoggedIn && (
+              {!settings?.feAuthLoggedIn && (
                 <div className="bg-[#fafafa] rounded-lg px-4 py-3 border border-[#f0f0f3] space-y-2">
                   <p className="text-[13px] text-[#6e6e80]">Install Claude Code CLI:</p>
                   <div className="bg-[#111113] rounded-md px-4 py-3 font-mono text-[12px] text-[#eeeeef]">

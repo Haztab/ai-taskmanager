@@ -1,25 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execSync, spawn, ChildProcess } from "child_process";
 import { prisma } from "@/lib/db";
-import { existsSync } from "fs";
-import { join } from "path";
+import crypto from "crypto";
 
-// Use globalThis to survive Next.js hot reloads
-const g = globalThis as unknown as {
-  __claudeAuthChild?: ChildProcess | null;
-};
+const CLAUDE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const CLAUDE_AUTH_URL = "https://claude.ai/oauth/authorize";
+const CLAUDE_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
+const CLAUDE_REDIRECT_URI = "https://platform.claude.com/oauth/code/callback";
+const SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+
+// Store PKCE verifier + state in globalThis to survive hot reloads
+const g = globalThis as unknown as { __pkceVerifier?: string; __pkceState?: string };
 
 function log(...args: unknown[]) {
   console.log(`[claude-auth ${new Date().toISOString().slice(11, 23)}]`, ...args);
 }
 
-// GET - check current auth status
+// Generate PKCE pair
+function generatePKCE() {
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+// GET — check FE auth status (independent from CLI)
 export async function GET() {
   try {
-    const binary = await getClaudeBinary();
-    const status = getAuthStatusSync(binary);
-    log("GET status:", status.loggedIn ? "logged in" : "not logged in");
-    return NextResponse.json(status);
+    const settings = await prisma.appSettings.findUnique({ where: { id: "singleton" } });
+    const hasToken = !!settings?.claudeOAuthAccessToken;
+    const expired = settings?.claudeOAuthExpiresAt
+      ? new Date(settings.claudeOAuthExpiresAt) < new Date()
+      : false;
+
+    return NextResponse.json({
+      loggedIn: hasToken && !expired,
+      email: settings?.claudeOAuthEmail || null,
+      expired,
+    });
   } catch {
     return NextResponse.json({ error: "Auth check failed" }, { status: 500 });
   }
@@ -30,166 +46,148 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { action } = body;
-    log("POST action:", action);
-    const binary = await getClaudeBinary();
+    log("action:", action);
 
-    // LOGOUT
-    if (action === "logout") {
-      log("logging out...");
-      killActive();
-      try {
-        execSync(`${binary} auth logout 2>&1`, { encoding: "utf-8", timeout: 10000 });
-      } catch { /* ok */ }
-      return NextResponse.json({ success: true, message: "Logged out" });
-    }
-
-    // CANCEL
-    if (action === "cancel") {
-      log("cancelling");
-      killActive();
-      return NextResponse.json({ success: true });
-    }
-
-    // CHECK
-    if (action === "check") {
-      const status = getAuthStatusSync(binary);
-      log("check:", status.loggedIn);
-      return NextResponse.json(status);
-    }
-
-    // LOGIN — spawn claude auth login, it polls server automatically
-    // No code paste needed — claude detects browser auth completion via polling
+    // LOGIN — generate OAuth URL with PKCE
     if (action === "login") {
-      log("=== LOGIN START ===");
-      killActive();
+      const pkce = generatePKCE();
+      const state = crypto.randomBytes(32).toString("base64url");
+      g.__pkceVerifier = pkce.verifier;
+      g.__pkceState = state;
+      log("generated PKCE, challenge:", pkce.challenge.slice(0, 20) + "...");
 
-      const scriptPath = join(process.cwd(), "scripts", "claude-auth-pty.py");
-      log("script:", scriptPath, "exists:", existsSync(scriptPath));
+      // Build URL to match CLI's exact format (+ for scope spaces)
+      const scopeEncoded = SCOPES.split(" ").map(s => encodeURIComponent(s)).join("+");
+      const authUrl = `${CLAUDE_AUTH_URL}?code=true`
+        + `&client_id=${CLAUDE_CLIENT_ID}`
+        + `&response_type=code`
+        + `&redirect_uri=${encodeURIComponent(CLAUDE_REDIRECT_URI)}`
+        + `&scope=${scopeEncoded}`
+        + `&code_challenge=${pkce.challenge}`
+        + `&code_challenge_method=S256`
+        + `&state=${state}`;
+      log("auth URL generated");
 
-      const stream = new ReadableStream({
-        start(controller) {
-          const encoder = new TextEncoder();
-          const send = (data: Record<string, unknown>) => {
-            log("SSE →", data.type);
-            try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-            } catch { /* closed */ }
-          };
+      return NextResponse.json({ authUrl, state });
+    }
 
-          const child = spawn("python3", [scriptPath, binary], {
-            stdio: ["pipe", "pipe", "pipe"],
-            env: { ...process.env },
-          });
-          g.__claudeAuthChild = child;
-          log("spawned pid:", child.pid);
+    // EXCHANGE — exchange auth code for tokens
+    if (action === "exchange") {
+      const { code } = body;
+      if (!code) {
+        return NextResponse.json({ error: "No code provided" }, { status: 400 });
+      }
 
-          child.stdout?.on("data", (data: Buffer) => {
-            const text = data.toString().trim();
-            for (const line of text.split("\n")) {
-              const t = line.trim();
-              if (!t) continue;
-              if (t.startsWith("URL:")) {
-                log("auth URL captured");
-                send({ type: "auth_url", url: t.slice(4) });
-              } else if (t === "LOGIN_SUCCESS" || t === "LOGIN_DONE") {
-                log(t, "— checking auth status...");
-                const status = getAuthStatusSync(binary);
-                log("auth status:", status.loggedIn);
-                send({
-                  type: "done",
-                  success: status.loggedIn,
-                  message: status.loggedIn
-                    ? "Successfully authenticated!"
-                    : "Login process completed.",
-                  account: status,
-                });
-              } else if (t.startsWith("ERROR:")) {
-                log("error:", t.slice(6));
-                send({ type: "error", message: t.slice(6) });
-              } else if (t.startsWith("DEBUG:")) {
-                log("py:", t.slice(6));
-              }
-            }
-          });
+      const verifier = g.__pkceVerifier;
+      const state = g.__pkceState;
+      if (!verifier || !state) {
+        return NextResponse.json({ error: "No PKCE session. Start login again." }, { status: 400 });
+      }
 
-          child.stderr?.on("data", (data: Buffer) => {
-            log("stderr:", data.toString().trim());
-          });
+      // Strip trailing # and URL hash (browser sometimes appends #state=...)
+      const cleanCode = code.trim().replace(/#.*$/, "");
+      log("exchanging code, length:", cleanCode.length, "state:", state.slice(0, 10) + "...");
 
-          child.on("close", (exitCode) => {
-            log("process exited:", exitCode);
-            g.__claudeAuthChild = null;
-            const status = getAuthStatusSync(binary);
-            if (status.loggedIn) {
-              send({ type: "done", success: true, message: "Authenticated!", account: status });
-            }
-            try { controller.close(); } catch { /* ok */ }
-          });
+      // Exchange code for tokens — must match CLI format exactly
+      const tokenBody = {
+        grant_type: "authorization_code",
+        code: cleanCode,
+        redirect_uri: CLAUDE_REDIRECT_URI,
+        client_id: CLAUDE_CLIENT_ID,
+        code_verifier: verifier,
+        state,
+      };
+      log("token request body keys:", Object.keys(tokenBody).join(", "));
 
-          child.on("error", (err) => {
-            log("spawn error:", err.message);
-            send({ type: "error", message: err.message });
-            try { controller.close(); } catch { /* ok */ }
-          });
+      const tokenRes = await fetch(CLAUDE_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tokenBody),
+      });
+
+      const tokenText = await tokenRes.text();
+      log("token response status:", tokenRes.status);
+      log("token response:", tokenText.slice(0, 300));
+
+      if (!tokenRes.ok) {
+        g.__pkceVerifier = undefined;
+        g.__pkceState = undefined;
+        return NextResponse.json(
+          { error: `Token exchange failed (${tokenRes.status}): ${tokenText.slice(0, 200)}` },
+          { status: 400 }
+        );
+      }
+
+      const tokens = JSON.parse(tokenText);
+      log("got tokens, access_token:", tokens.access_token?.slice(0, 15) + "...");
+
+      // Calculate expiry
+      const expiresAt = tokens.expires_in
+        ? new Date(Date.now() + tokens.expires_in * 1000)
+        : new Date(Date.now() + 3600 * 1000); // default 1 hour
+
+      // Fetch user profile
+      let email: string | null = null;
+      try {
+        const profileRes = await fetch("https://platform.claude.com/v1/oauth/userinfo", {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          email = profile.email || null;
+          log("profile email:", email);
+        }
+      } catch {
+        log("couldn't fetch profile, continuing without email");
+      }
+
+      // Store in DB
+      await prisma.appSettings.upsert({
+        where: { id: "singleton" },
+        update: {
+          claudeOAuthAccessToken: tokens.access_token,
+          claudeOAuthRefreshToken: tokens.refresh_token || null,
+          claudeOAuthExpiresAt: expiresAt,
+          claudeOAuthEmail: email,
+        },
+        create: {
+          id: "singleton",
+          claudeOAuthAccessToken: tokens.access_token,
+          claudeOAuthRefreshToken: tokens.refresh_token || null,
+          claudeOAuthExpiresAt: expiresAt,
+          claudeOAuthEmail: email,
         },
       });
 
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
+      g.__pkceVerifier = undefined;
+      g.__pkceState = undefined;
+      log("tokens stored in DB, login complete");
+
+      return NextResponse.json({
+        success: true,
+        email,
+        expiresAt: expiresAt.toISOString(),
+      });
+    }
+
+    // LOGOUT — clear FE tokens only (doesn't touch CLI)
+    if (action === "logout") {
+      log("FE logout — clearing DB tokens");
+      await prisma.appSettings.update({
+        where: { id: "singleton" },
+        data: {
+          claudeOAuthAccessToken: null,
+          claudeOAuthRefreshToken: null,
+          claudeOAuthExpiresAt: null,
+          claudeOAuthEmail: null,
         },
       });
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     log("error:", error);
     return NextResponse.json({ error: "Auth failed" }, { status: 500 });
-  }
-}
-
-function killActive() {
-  const child = g.__claudeAuthChild;
-  if (child && !child.killed) {
-    try { child.kill("SIGTERM"); } catch { /* ok */ }
-  }
-  g.__claudeAuthChild = null;
-}
-
-async function getClaudeBinary(): Promise<string> {
-  const settings = await prisma.appSettings.findUnique({ where: { id: "singleton" } });
-  const binary = settings?.claudeCodePath || "claude";
-  try {
-    return execSync(`which ${binary} 2>/dev/null`, { encoding: "utf-8", timeout: 3000 }).trim();
-  } catch {
-    return binary;
-  }
-}
-
-function getAuthStatusSync(binary: string) {
-  try {
-    const output = execSync(`${binary} auth status 2>&1`, {
-      encoding: "utf-8", timeout: 10000,
-    }).trim();
-    const data = JSON.parse(output);
-    return {
-      loggedIn: data.loggedIn === true,
-      email: data.email || null,
-      plan: data.subscriptionType
-        ? data.subscriptionType.charAt(0).toUpperCase() + data.subscriptionType.slice(1)
-        : null,
-      orgId: data.orgId || null,
-      orgName: data.orgName || null,
-      authMethod: data.authMethod || null,
-      subscriptionType: data.subscriptionType || null,
-      apiProvider: data.apiProvider || null,
-    };
-  } catch {
-    return {
-      loggedIn: false, email: null, plan: null, orgId: null,
-      orgName: null, authMethod: null, subscriptionType: null, apiProvider: null,
-    };
   }
 }

@@ -131,4 +131,9 @@ model AppSettings {
   dailyTokenLimit Int     @default(5000000)
   claudeCodePath  String? // custom path to claude CLI binary
   claudeCodeArgs  String? // extra CLI args, e.g. "--model opus"
+  // FE-only OAuth (independent from CLI/device auth)
+  claudeOAuthAccessToken  String?
+  claudeOAuthRefreshToken String?
+  claudeOAuthExpiresAt    DateTime?
+  claudeOAuthEmail        String?
 }

@@ -72,7 +72,11 @@
       "Bash(pkill -f \"claude auth\")",
       "Bash(pkill -f \"expect.*claude\")",
       "Bash(pkill -f 'claude auth login')",
-      "Bash(pkill -f expect.*claude)"
+      "Bash(pkill -f expect.*claude)",
+      "Bash(pkill -f \"pty-server\")",
+      "Bash(curl -s http://localhost:3000/api/settings)",
+      "Bash(curl -s -X POST http://localhost:3000/api/settings/claude-auth -H \"Content-Type: application/json\" -d '{\"\"\"\"action\"\"\"\":\"\"\"\"login\"\"\"\"}')",
+      "Bash(python3 -c \":*)"
     ]
   }
 }
