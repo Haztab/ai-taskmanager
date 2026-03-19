@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Activity, ArrowDownLeft, ArrowUpRight, Zap } from "lucide-react";
 
 interface UsageData {
   totals: { inputTokens: number; outputTokens: number; totalTokens: number };
@@ -68,6 +69,45 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+const statCards = [
+  {
+    key: "totalTokens",
+    label: "Total Tokens",
+    icon: Activity,
+    color: "blue",
+    borderColor: "border-l-blue-500",
+    iconBg: "bg-blue-500/10",
+    iconColor: "text-blue-500",
+  },
+  {
+    key: "inputTokens",
+    label: "Input Tokens",
+    icon: ArrowDownLeft,
+    color: "green",
+    borderColor: "border-l-emerald-500",
+    iconBg: "bg-emerald-500/10",
+    iconColor: "text-emerald-500",
+  },
+  {
+    key: "outputTokens",
+    label: "Output Tokens",
+    icon: ArrowUpRight,
+    color: "orange",
+    borderColor: "border-l-orange-500",
+    iconBg: "bg-orange-500/10",
+    iconColor: "text-orange-500",
+  },
+  {
+    key: "apiCalls",
+    label: "API Calls",
+    icon: Zap,
+    color: "purple",
+    borderColor: "border-l-purple-500",
+    iconBg: "bg-purple-500/10",
+    iconColor: "text-purple-500",
+  },
+] as const;
+
 export default function UsagePage() {
   const [period, setPeriod] = useState("today");
 
@@ -83,6 +123,18 @@ export default function UsagePage() {
     queryFn: () =>
       fetch("/api/usage/sessions?limit=20").then((r) => r.json()),
   });
+
+  const getStatValue = (key: string) => {
+    if (!usage) return "0";
+    if (key === "totalTokens") return formatTokens(usage.totals.totalTokens);
+    if (key === "inputTokens") return formatTokens(usage.totals.inputTokens);
+    if (key === "outputTokens") return formatTokens(usage.totals.outputTokens);
+    if (key === "apiCalls")
+      return String(
+        Object.values(usage.bySource).reduce((sum, s) => sum + s.count, 0)
+      );
+    return "0";
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -122,12 +174,17 @@ export default function UsagePage() {
         ) : usage ? (
           <>
             {/* Limit card - prominent */}
-            <Card className="border-2">
-              <CardHeader className="pb-3">
+            <Card className="border-2 overflow-hidden">
+              <CardHeader className="pb-3 bg-gradient-to-r from-muted/50 to-transparent">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">
-                    Claude Code Max - Daily Usage
-                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500/20 to-indigo-500/20">
+                      <Activity className="h-5 w-5 text-violet-500" />
+                    </div>
+                    <CardTitle className="text-lg">
+                      Claude Code Max - Daily Usage
+                    </CardTitle>
+                  </div>
                   <Badge
                     variant={
                       usage.limits.percentUsed > 80
@@ -136,26 +193,29 @@ export default function UsagePage() {
                         ? "secondary"
                         : "outline"
                     }
+                    className="text-sm px-3 py-1"
                   >
                     {usage.limits.percentUsed}% used
                   </Badge>
                 </div>
-                <CardDescription>
+                <CardDescription className="ml-12">
                   Resets daily. Configure limit via CLAUDE_MAX_DAILY_TOKENS env var.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Progress bar */}
+              <CardContent className="space-y-3 pt-4">
+                {/* Animated progress bar */}
                 <div className="w-full h-4 bg-muted rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all ${
-                      usage.limits.percentUsed > 80
-                        ? "bg-red-500"
-                        : usage.limits.percentUsed > 50
-                        ? "bg-yellow-500"
-                        : "bg-green-500"
-                    }`}
-                    style={{ width: `${Math.min(usage.limits.percentUsed, 100)}%` }}
+                    className="h-full rounded-full transition-all duration-1000 ease-out bg-gradient-to-r from-green-500 via-emerald-400 to-green-500 bg-[length:200%_100%] animate-[shimmer_2s_infinite]"
+                    style={{
+                      width: `${Math.min(usage.limits.percentUsed, 100)}%`,
+                      backgroundImage:
+                        usage.limits.percentUsed > 80
+                          ? "linear-gradient(90deg, #ef4444, #f87171, #ef4444)"
+                          : usage.limits.percentUsed > 50
+                          ? "linear-gradient(90deg, #eab308, #facc15, #eab308)"
+                          : "linear-gradient(90deg, #22c55e, #4ade80, #22c55e)",
+                    }}
                   />
                 </div>
                 <div className="flex justify-between text-sm">
@@ -176,49 +236,29 @@ export default function UsagePage() {
 
             {/* Stats cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription>Total Tokens</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {formatTokens(usage.totals.totalTokens)}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription>Input Tokens</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {formatTokens(usage.totals.inputTokens)}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription>Output Tokens</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {formatTokens(usage.totals.outputTokens)}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardDescription>API Calls</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {Object.values(usage.bySource).reduce(
-                      (sum, s) => sum + s.count,
-                      0
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+              {statCards.map((stat) => {
+                const Icon = stat.icon;
+                return (
+                  <Card
+                    key={stat.key}
+                    className={`border-l-4 ${stat.borderColor}`}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardDescription>{stat.label}</CardDescription>
+                        <div className={`p-1.5 rounded-md ${stat.iconBg}`}>
+                          <Icon className={`h-4 w-4 ${stat.iconColor}`} />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {getStatValue(stat.key)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
 
             {/* Usage by source */}
@@ -237,11 +277,13 @@ export default function UsagePage() {
                   </CardHeader>
                   <CardContent>
                     <div className="flex gap-6 text-sm">
-                      <div>
+                      <div className="flex items-center gap-1.5">
+                        <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-500" />
                         <span className="text-muted-foreground">Input: </span>
                         <strong>{formatTokens(data.inputTokens)}</strong>
                       </div>
-                      <div>
+                      <div className="flex items-center gap-1.5">
+                        <ArrowUpRight className="h-3.5 w-3.5 text-orange-500" />
                         <span className="text-muted-foreground">Output: </span>
                         <strong>{formatTokens(data.outputTokens)}</strong>
                       </div>
@@ -256,19 +298,26 @@ export default function UsagePage() {
         {/* Recent sessions */}
         {sessionData && sessionData.sessions.length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Recent Claude Code Sessions</CardTitle>
-              <CardDescription>
-                Total: {formatTokens(sessionData.totalTokens.input)} input +{" "}
-                {formatTokens(sessionData.totalTokens.output)} output
-              </CardDescription>
+            <CardHeader className="bg-gradient-to-r from-muted/50 to-transparent">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20">
+                  <Zap className="h-5 w-5 text-blue-500" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Recent Claude Code Sessions</CardTitle>
+                  <CardDescription>
+                    Total: {formatTokens(sessionData.totalTokens.input)} input +{" "}
+                    {formatTokens(sessionData.totalTokens.output)} output
+                  </CardDescription>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
+            <CardContent className="pt-4">
+              <div className="space-y-1">
                 {sessionData.sessions.map((session) => (
                   <div
                     key={session.id}
-                    className="flex items-center justify-between border-b pb-3 last:border-0"
+                    className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border hover:bg-muted/50 transition-all duration-150 cursor-default"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -293,7 +342,7 @@ export default function UsagePage() {
                       </p>
                     </div>
                     <div className="text-right text-xs text-muted-foreground ml-4 shrink-0">
-                      <div>
+                      <div className="font-medium">
                         {formatTokens(session.inputTokens + session.outputTokens)} tokens
                       </div>
                       <div>

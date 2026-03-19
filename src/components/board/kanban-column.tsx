@@ -29,6 +29,30 @@ const COLUMN_HEADER_COLORS: Record<TaskStatus, string> = {
   done: "text-emerald-600 dark:text-emerald-400",
 };
 
+const COLUMN_TOP_BAR: Record<TaskStatus, string> = {
+  backlog: "bg-slate-400 dark:bg-slate-500",
+  todo: "bg-blue-500 dark:bg-blue-400",
+  in_progress: "bg-amber-500 dark:bg-amber-400",
+  review: "bg-purple-500 dark:bg-purple-400",
+  done: "bg-emerald-500 dark:bg-emerald-400",
+};
+
+const COLUMN_DOT_COLORS: Record<TaskStatus, string> = {
+  backlog: "bg-slate-400 dark:bg-slate-500",
+  todo: "bg-blue-500 dark:bg-blue-400",
+  in_progress: "bg-amber-500 dark:bg-amber-400",
+  review: "bg-purple-500 dark:bg-purple-400",
+  done: "bg-emerald-500 dark:bg-emerald-400",
+};
+
+const COLUMN_BADGE_COLORS: Record<TaskStatus, string> = {
+  backlog: "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
+  todo: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
+  in_progress: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+  review: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
+  done: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+};
+
 interface KanbanColumnProps {
   status: TaskStatus;
   title: string;
@@ -78,14 +102,18 @@ export function KanbanColumn({
   return (
     <div
       className={cn(
-        "flex h-full w-72 shrink-0 flex-col rounded-xl border",
+        "flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-xl border shadow-sm transition-shadow",
         COLUMN_COLORS[status],
-        isOver && "ring-2 ring-primary/30"
+        isOver && "ring-2 ring-primary/30 shadow-md"
       )}
     >
+      {/* Colored top bar */}
+      <div className={cn("h-1 w-full", COLUMN_TOP_BAR[status])} />
+
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex items-center gap-2">
+          <span className={cn("size-2 rounded-full", COLUMN_DOT_COLORS[status])} />
           <h3
             className={cn(
               "text-sm font-semibold",
@@ -94,13 +122,19 @@ export function KanbanColumn({
           >
             {title}
           </h3>
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">
+          <span className={cn(
+            "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
+            COLUMN_BADGE_COLORS[status]
+          )}>
             {tasks.length}
           </span>
         </div>
         <button
           onClick={() => setIsAddingTask(true)}
-          className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className={cn(
+            "rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground",
+            `hover:bg-${status === "backlog" ? "slate" : status === "todo" ? "blue" : status === "in_progress" ? "amber" : status === "review" ? "purple" : "emerald"}-100 dark:hover:bg-${status === "backlog" ? "slate" : status === "todo" ? "blue" : status === "in_progress" ? "amber" : status === "review" ? "purple" : "emerald"}-900/30`
+          )}
         >
           <PlusIcon className="size-4" />
         </button>
@@ -122,7 +156,7 @@ export function KanbanColumn({
 
         {/* Quick add input at bottom */}
         {isAddingTask && (
-          <div className="rounded-lg border border-dashed border-muted-foreground/30 p-2">
+          <div className="rounded-lg border-2 border-dashed border-primary/20 bg-background/60 p-2 backdrop-blur-sm">
             <Input
               autoFocus
               placeholder="Task title..."
@@ -136,7 +170,7 @@ export function KanbanColumn({
                   setIsAddingTask(false);
                 }
               }}
-              className="h-7 text-sm"
+              className="h-8 border-primary/20 text-sm focus-visible:ring-primary/30"
             />
           </div>
         )}

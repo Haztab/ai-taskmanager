@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { ClipboardListIcon, PencilIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -105,20 +106,30 @@ export function TaskFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit Task" : "Create Task"}</DialogTitle>
-          <DialogDescription>
-            {isEditing
-              ? "Update the task details below."
-              : "Fill in the details to create a new task."}
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="overflow-hidden p-0 sm:max-w-lg">
+        {/* Gradient accent header */}
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-6 pb-4 pt-6">
+          <DialogHeader className="space-y-1.5">
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              {isEditing ? (
+                <PencilIcon className="size-5 text-primary" />
+              ) : (
+                <ClipboardListIcon className="size-5 text-primary" />
+              )}
+              {isEditing ? "Edit Task" : "Create Task"}
+            </DialogTitle>
+            <DialogDescription>
+              {isEditing
+                ? "Update the task details below."
+                : "Fill in the details to create a new task."}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5 px-6 pb-6">
           {/* Title */}
-          <div className="space-y-1.5">
-            <Label htmlFor="task-title">Title</Label>
+          <div className="space-y-2">
+            <Label htmlFor="task-title" className="text-sm font-medium">Title</Label>
             <Input
               id="task-title"
               placeholder="Task title..."
@@ -127,25 +138,27 @@ export function TaskFormDialog({
                 setTitle((e.target as HTMLInputElement).value)
               }
               required
+              className="h-10"
             />
           </div>
 
           {/* Description */}
-          <div className="space-y-1.5">
-            <Label htmlFor="task-description">Description</Label>
+          <div className="space-y-2">
+            <Label htmlFor="task-description" className="text-sm font-medium">Description</Label>
             <Textarea
               id="task-description"
               placeholder="Describe the task..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
+              className="resize-none"
             />
           </div>
 
           {/* Status & Priority row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Status</Label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Status</Label>
               <Select
                 value={status}
                 onValueChange={(val) => setStatus(val as TaskStatus)}
@@ -163,8 +176,8 @@ export function TaskFormDialog({
               </Select>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Priority</Label>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Priority</Label>
               <Select
                 value={String(priority)}
                 onValueChange={(val) => setPriority(Number(val) as Priority)}
@@ -189,9 +202,9 @@ export function TaskFormDialog({
           </div>
 
           {/* Effort & Workstream row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Effort</Label>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Effort</Label>
               <Select
                 value={effort}
                 onValueChange={(val) => setEffort(val as Effort)}
@@ -209,8 +222,8 @@ export function TaskFormDialog({
               </Select>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Workstream</Label>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Workstream</Label>
               <Select
                 value={workstreamId}
                 onValueChange={(val) => setWorkstreamId(val ?? "")}
@@ -237,8 +250,8 @@ export function TaskFormDialog({
 
           {/* Epic */}
           {epics.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>Epic</Label>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Epic</Label>
               <Select
                 value={epicId}
                 onValueChange={(val) => setEpicId(val ?? "")}
@@ -257,7 +270,7 @@ export function TaskFormDialog({
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
@@ -265,7 +278,11 @@ export function TaskFormDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!title.trim() || isSubmitting}>
+            <Button
+              type="submit"
+              disabled={!title.trim() || isSubmitting}
+              className="bg-primary font-semibold shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+            >
               {isSubmitting
                 ? "Saving..."
                 : isEditing

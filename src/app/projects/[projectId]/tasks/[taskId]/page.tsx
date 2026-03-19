@@ -26,6 +26,19 @@ import { Header } from "@/components/layout/header";
 import { ClaudeTerminal } from "@/components/terminal/claude-terminal";
 import { toast } from "sonner";
 import {
+  CheckCircle2,
+  Circle,
+  AlertTriangle,
+  Link2,
+  Sparkles,
+  GitBranch,
+  Pencil,
+  X,
+  Save,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import {
   type TaskStatus,
   type Priority,
   type Effort,
@@ -61,6 +74,36 @@ function parseAcceptanceCriteria(ac: string | null): string[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return ac ? [ac] : [];
+  }
+}
+
+function getPriorityStyle(priority: number): string {
+  switch (priority) {
+    case 0:
+      return "bg-gradient-to-r from-red-600 to-red-500 text-white border-0";
+    case 1:
+      return "bg-gradient-to-r from-orange-500 to-amber-500 text-white border-0";
+    case 2:
+      return "bg-gradient-to-r from-yellow-500 to-yellow-400 text-gray-900 border-0";
+    case 3:
+      return "bg-gradient-to-r from-blue-500 to-blue-400 text-white border-0";
+    default:
+      return "bg-gradient-to-r from-gray-500 to-gray-400 text-white border-0";
+  }
+}
+
+function getStatusStyle(status: string): string {
+  switch (status) {
+    case "done":
+      return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30";
+    case "in-progress":
+      return "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30";
+    case "review":
+      return "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30";
+    case "blocked":
+      return "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30";
+    default:
+      return "bg-gray-500/15 text-gray-700 dark:text-gray-300 border-gray-500/30";
   }
 }
 
@@ -237,7 +280,9 @@ export default function TaskDetailPage() {
               size="sm"
               onClick={() => refineTask.mutate()}
               disabled={refineTask.isPending}
+              className="gap-1.5"
             >
+              <Sparkles className="h-3.5 w-3.5" />
               {refineTask.isPending ? "Refining..." : "AI Refine"}
             </Button>
             {!task.worktreePath && (
@@ -259,7 +304,9 @@ export default function TaskDetailPage() {
                     ? `Blocked by: ${blockedByNames.join(", ")}`
                     : "Create a git worktree to start coding"
                 }
+                className="gap-1.5"
               >
+                <GitBranch className="h-3.5 w-3.5" />
                 {isBlocked
                   ? "Blocked"
                   : createWorktree.isPending
@@ -269,15 +316,23 @@ export default function TaskDetailPage() {
             )}
             {isEditing ? (
               <>
-                <Button size="sm" onClick={handleSave} disabled={updateTask.isPending}>
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={updateTask.isPending}
+                  className="gap-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white"
+                >
+                  <Save className="h-3.5 w-3.5" />
                   {updateTask.isPending ? "Saving..." : "Save"}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>
+                <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} className="gap-1.5">
+                  <X className="h-3.5 w-3.5" />
                   Cancel
                 </Button>
               </>
             ) : (
-              <Button size="sm" variant="outline" onClick={startEditing}>
+              <Button size="sm" variant="outline" onClick={startEditing} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" />
                 Edit
               </Button>
             )}
@@ -289,9 +344,11 @@ export default function TaskDetailPage() {
         {/* Left side - Task details */}
         <div className="flex-1 overflow-auto p-6 space-y-6">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{statusInfo?.label ?? task.status}</Badge>
+            <Badge className={getStatusStyle(task.status) + " border"}>
+              {statusInfo?.label ?? task.status}
+            </Badge>
             {priorityInfo && (
-              <Badge className={priorityInfo.color + " text-white"}>
+              <Badge className={getPriorityStyle(task.priority)}>
                 {priorityInfo.label}
               </Badge>
             )}
@@ -299,7 +356,15 @@ export default function TaskDetailPage() {
               <Badge variant="secondary">Effort: {task.estimatedEffort}</Badge>
             )}
             {task.workstream && (
-              <Badge variant="secondary" style={{ borderColor: task.workstream.color }}>
+              <Badge
+                variant="secondary"
+                className="border"
+                style={{ borderColor: task.workstream.color, backgroundColor: task.workstream.color + "15" }}
+              >
+                <span
+                  className="w-2 h-2 rounded-full mr-1.5 inline-block"
+                  style={{ backgroundColor: task.workstream.color }}
+                />
                 {task.workstream.name}
               </Badge>
             )}
@@ -308,16 +373,17 @@ export default function TaskDetailPage() {
             )}
           </div>
 
-          <Card>
-            <CardHeader>
+          <Card className="border shadow-sm">
+            <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent">
               <CardTitle className="text-sm font-medium">Description</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               {isEditing ? (
                 <Textarea
                   value={editForm.description ?? ""}
                   onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                   rows={4}
+                  className="border-muted-foreground/20 focus:border-violet-500 transition-colors"
                 />
               ) : (
                 <p className="text-sm whitespace-pre-wrap">
@@ -327,16 +393,17 @@ export default function TaskDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+          <Card className="border shadow-sm">
+            <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent">
               <CardTitle className="text-sm font-medium">User Story</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               {isEditing ? (
                 <Textarea
                   value={editForm.userStory ?? ""}
                   onChange={(e) => setEditForm((f) => ({ ...f, userStory: e.target.value }))}
                   rows={3}
+                  className="border-muted-foreground/20 focus:border-violet-500 transition-colors"
                 />
               ) : (
                 <p className="text-sm italic whitespace-pre-wrap">
@@ -346,11 +413,11 @@ export default function TaskDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+          <Card className="border shadow-sm">
+            <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent">
               <CardTitle className="text-sm font-medium">Acceptance Criteria</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               {isEditing ? (
                 <div className="space-y-2">
                   {(editForm.acceptanceCriteria ?? []).map((ac, i) => (
@@ -362,22 +429,25 @@ export default function TaskDetailPage() {
                           updated[i] = e.target.value;
                           setEditForm((f) => ({ ...f, acceptanceCriteria: updated }));
                         }}
+                        className="border-muted-foreground/20 focus:border-violet-500 transition-colors"
                       />
                       <Button
                         size="sm"
                         variant="ghost"
+                        className="text-red-500 hover:text-red-600 hover:bg-red-500/10 shrink-0"
                         onClick={() => {
                           const updated = (editForm.acceptanceCriteria ?? []).filter((_, idx) => idx !== i);
                           setEditForm((f) => ({ ...f, acceptanceCriteria: updated }));
                         }}
                       >
-                        Remove
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   ))}
                   <Button
                     size="sm"
                     variant="outline"
+                    className="gap-1.5"
                     onClick={() =>
                       setEditForm((f) => ({
                         ...f,
@@ -385,6 +455,7 @@ export default function TaskDetailPage() {
                       }))
                     }
                   >
+                    <Plus className="h-3.5 w-3.5" />
                     Add Criterion
                   </Button>
                 </div>
@@ -392,13 +463,14 @@ export default function TaskDetailPage() {
                 <ul className="space-y-2">
                   {acceptanceCriteria.length > 0 ? (
                     acceptanceCriteria.map((ac, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm">
-                        <input type="checkbox" className="mt-0.5 rounded" readOnly />
+                      <li key={i} className="flex items-start gap-2.5 text-sm group">
+                        <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-500 shrink-0" />
                         <span>{ac}</span>
                       </li>
                     ))
                   ) : (
-                    <li className="text-sm text-muted-foreground">
+                    <li className="text-sm text-muted-foreground flex items-center gap-2">
+                      <Circle className="h-4 w-4 text-muted-foreground/50" />
                       No acceptance criteria defined.
                     </li>
                   )}
@@ -408,25 +480,26 @@ export default function TaskDetailPage() {
           </Card>
 
           {isEditing && (
-            <Card>
-              <CardHeader>
+            <Card className="border shadow-sm">
+              <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent">
                 <CardTitle className="text-sm font-medium">Task Properties</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4">
+              <CardContent className="grid grid-cols-2 gap-4 pt-4">
                 <div className="space-y-2">
-                  <Label>Title</Label>
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Title</Label>
                   <Input
                     value={editForm.title ?? ""}
                     onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+                    className="border-muted-foreground/20 focus:border-violet-500 transition-colors"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Status</Label>
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</Label>
                   <Select
                     value={editForm.status}
                     onValueChange={(v) => setEditForm((f) => ({ ...f, status: v as TaskStatus }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="border-muted-foreground/20">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -439,12 +512,12 @@ export default function TaskDetailPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Priority</Label>
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Priority</Label>
                   <Select
                     value={String(editForm.priority)}
                     onValueChange={(v) => setEditForm((f) => ({ ...f, priority: Number(v) as Priority }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="border-muted-foreground/20">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -457,12 +530,12 @@ export default function TaskDetailPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Effort</Label>
+                  <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Effort</Label>
                   <Select
                     value={editForm.estimatedEffort}
                     onValueChange={(v) => setEditForm((f) => ({ ...f, estimatedEffort: v as Effort }))}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="border-muted-foreground/20">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -479,26 +552,34 @@ export default function TaskDetailPage() {
           )}
 
           {/* Dependencies */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Dependencies</CardTitle>
+          <Card className="border shadow-sm">
+            <CardHeader className="bg-gradient-to-r from-muted/30 to-transparent">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Link2 className="h-4 w-4" />
+                Dependencies
+              </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               {task.dependencies && task.dependencies.length > 0 ? (
-                <ul className="space-y-1">
+                <ul className="space-y-2">
                   {task.dependencies.map((dep) => (
-                    <li key={dep.id} className="flex items-center gap-2 text-sm">
+                    <li key={dep.id} className="flex items-center gap-2.5 text-sm p-2 rounded-lg border bg-muted/30">
+                      {dep.dependency.status === "done" ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                      )}
+                      <span className="flex-1">{dep.dependency.title}</span>
                       <Badge
                         variant="outline"
                         className={
                           dep.dependency.status === "done"
-                            ? "border-green-500 text-green-600"
-                            : "border-yellow-500 text-yellow-600"
+                            ? "border-emerald-500/30 text-emerald-600 bg-emerald-500/10"
+                            : "border-amber-500/30 text-amber-600 bg-amber-500/10"
                         }
                       >
-                        {dep.dependency.status === "done" ? "Done" : "Blocked"}
+                        {dep.dependency.status === "done" ? "Done" : "Pending"}
                       </Badge>
-                      <span>{dep.dependency.title}</span>
                     </li>
                   ))}
                 </ul>
@@ -509,7 +590,7 @@ export default function TaskDetailPage() {
           </Card>
         </div>
 
-        <Separator orientation="vertical" />
+        <div className="w-px bg-border" />
 
         {/* Right side - Claude Code Terminal */}
         <div className="w-[500px] p-4">

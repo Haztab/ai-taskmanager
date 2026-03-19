@@ -8,6 +8,14 @@ import { cn } from "@/lib/utils";
 import { PRIORITIES } from "@/types";
 import type { Task } from "@/hooks/use-board";
 
+const PRIORITY_PILL_COLORS: Record<number, string> = {
+  1: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  2: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
+  3: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+  4: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  5: "bg-slate-100 text-slate-600 dark:bg-slate-800/40 dark:text-slate-400",
+};
+
 interface TaskCardProps {
   task: Task;
   projectId: string;
@@ -42,6 +50,8 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
     task.dependencies &&
     task.dependencies.some((d) => d.dependency.status !== "done");
 
+  const workstreamColor = task.workstream?.color ?? "transparent";
+
   const handleClick = (e: React.MouseEvent) => {
     // Don't navigate if we're dragging
     if (isDragging) return;
@@ -54,28 +64,24 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{
+        ...style,
+        borderLeftColor: workstreamColor,
+        borderLeftWidth: task.workstream ? "3px" : undefined,
+      }}
       {...attributes}
       {...listeners}
       onClick={handleClick}
       className={cn(
-        "group cursor-grab rounded-lg border bg-card p-3 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing",
+        "group cursor-grab rounded-lg border bg-card p-3 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-[2px] active:cursor-grabbing",
         isDragging && "z-50 opacity-50 shadow-lg"
       )}
     >
       <div className="flex items-start gap-2">
-        {/* Workstream color indicator */}
-        {task.workstream && (
-          <div
-            className="mt-1 h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: task.workstream.color }}
-            title={task.workstream.name}
-          />
-        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             {hasUnfinishedDeps && (
-              <LockIcon className="size-3 shrink-0 text-amber-500" />
+              <LockIcon className="size-3.5 shrink-0 text-amber-500 animate-pulse" />
             )}
             <p className="truncate text-sm font-medium leading-tight">
               {task.title}
@@ -86,24 +92,24 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
 
       {/* Bottom row: badges */}
       <div className="mt-2 flex items-center gap-1.5">
-        {/* Priority dot */}
+        {/* Priority pill badge */}
         {priorityConfig && (
           <span
-            className={cn("size-2 shrink-0 rounded-full", priorityConfig.color)}
-            title={priorityConfig.label}
-          />
-        )}
-
-        {/* Priority label */}
-        {priorityConfig && (
-          <span className="text-[10px] text-muted-foreground">
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              PRIORITY_PILL_COLORS[task.priority] ?? "bg-muted text-muted-foreground"
+            )}
+          >
+            <span
+              className={cn("size-1.5 rounded-full", priorityConfig.color)}
+            />
             {priorityConfig.label}
           </span>
         )}
 
         {/* Effort badge */}
         {task.estimatedEffort && (
-          <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="ml-auto inline-flex items-center rounded-full bg-muted/80 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground ring-1 ring-inset ring-muted-foreground/10">
             {task.estimatedEffort}
           </span>
         )}

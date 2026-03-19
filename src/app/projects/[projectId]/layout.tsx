@@ -5,6 +5,7 @@ import { useParams, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Lightbulb, LayoutDashboard, Settings, ChevronRight } from "lucide-react";
 
 interface Project {
   id: string;
@@ -14,9 +15,9 @@ interface Project {
 }
 
 const subNavItems = [
-  { segment: "ideas", label: "Ideas", icon: "💡" },
-  { segment: "board", label: "Board", icon: "📋" },
-  { segment: "settings", label: "Settings", icon: "⚙️" },
+  { segment: "ideas", label: "Ideas", icon: Lightbulb },
+  { segment: "board", label: "Board", icon: LayoutDashboard },
+  { segment: "settings", label: "Settings", icon: Settings },
 ];
 
 export default function ProjectLayout({
@@ -39,18 +40,17 @@ export default function ProjectLayout({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Project header with sub-navigation */}
-      <div className="border-b bg-card px-6 pt-4 pb-0">
-        <div className="mb-3">
-          <div className="text-sm text-muted-foreground mb-1">
-            <Link href="/" className="hover:text-foreground">
+      <div className="bg-white border-b border-[#e4e4e7] px-8 pt-5 pb-0">
+        <div className="mb-4">
+          <div className="flex items-center gap-1 text-[13px] text-[#6e6e80] mb-1">
+            <Link href="/" className="hover:text-[#0a0a0a] transition-colors">
               Projects
             </Link>
-            <span className="mx-2">/</span>
+            <ChevronRight className="w-3 h-3 text-[#c0c0c8]" />
             {isLoading ? (
               <Skeleton className="inline-block h-4 w-32 align-middle" />
             ) : (
-              <span className="text-foreground font-medium">
+              <span className="text-[#0a0a0a] font-medium">
                 {project?.name ?? "Unknown Project"}
               </span>
             )}
@@ -58,28 +58,31 @@ export default function ProjectLayout({
           {isLoading ? (
             <Skeleton className="h-7 w-48" />
           ) : (
-            <h1 className="text-2xl font-bold">{project?.name ?? "Project"}</h1>
+            <h1 className="text-[22px] font-semibold text-[#0a0a0a] tracking-[-0.02em]">
+              {project?.name ?? "Project"}
+            </h1>
           )}
         </div>
 
-        <nav className="flex gap-1">
+        <nav className="flex gap-1 -mb-px">
           {subNavItems.map((item) => {
             const href = `/projects/${projectId}/${item.segment}`;
             const isActive =
               pathname === href || pathname.startsWith(`${href}/`);
+            const Icon = item.icon;
 
             return (
               <Link
                 key={item.segment}
                 href={href}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-md border-b-2 transition-colors",
+                  "flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors",
                   isActive
-                    ? "border-primary text-primary bg-accent/50"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                    ? "border-[#5b5bd6] text-[#0a0a0a]"
+                    : "border-transparent text-[#6e6e80] hover:text-[#0a0a0a] hover:border-[#c0c0c8]"
                 )}
               >
-                <span>{item.icon}</span>
+                <Icon className="w-4 h-4" />
                 {item.label}
               </Link>
             );
@@ -87,7 +90,6 @@ export default function ProjectLayout({
         </nav>
       </div>
 
-      {/* Page content */}
       <div className="flex-1 overflow-auto">{children}</div>
     </div>
   );

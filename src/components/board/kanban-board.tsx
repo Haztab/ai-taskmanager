@@ -266,6 +266,7 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         />
         <Button
           size="sm"
+          className="gap-1.5 bg-primary font-semibold shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
           onClick={() => {
             setEditingTask(null);
             setDefaultStatus("todo");
@@ -284,7 +285,7 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex flex-1 gap-4 overflow-x-auto p-4">
+        <div className="flex flex-1 gap-4 overflow-x-auto bg-gradient-to-br from-slate-50/80 via-white to-slate-100/60 p-6 dark:from-slate-950/80 dark:via-slate-900 dark:to-slate-950/60">
           {TASK_STATUSES.map((statusConfig) => (
             <KanbanColumn
               key={statusConfig.value}

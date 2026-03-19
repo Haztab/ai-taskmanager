@@ -2,12 +2,39 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 
 let client: Anthropic | null = null;
+let cachedKey: string | null = null;
 
-export function getClaudeClient(): Anthropic {
-  if (!client) {
-    client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
+async function getApiKey(): Promise<string> {
+  // Check DB first (set via dashboard), fall back to env
+  try {
+    const settings = await prisma.appSettings.findUnique({
+      where: { id: "singleton" },
     });
+    if (settings?.anthropicApiKey) return settings.anthropicApiKey;
+  } catch {
+    // DB not ready, fall back
+  }
+  return process.env.ANTHROPIC_API_KEY || "";
+}
+
+async function getModel(): Promise<string> {
+  try {
+    const settings = await prisma.appSettings.findUnique({
+      where: { id: "singleton" },
+    });
+    if (settings?.claudeCodeModel) return settings.claudeCodeModel;
+  } catch {
+    // fall back
+  }
+  return "claude-sonnet-4-20250514";
+}
+
+export async function getClaudeClient(): Promise<Anthropic> {
+  const apiKey = await getApiKey();
+  // Recreate client if key changed
+  if (!client || cachedKey !== apiKey) {
+    client = new Anthropic({ apiKey });
+    cachedKey = apiKey;
   }
   return client;
 }
@@ -39,8 +66,8 @@ export async function generateWithClaude(
   prompt: string,
   projectId?: string
 ): Promise<{ text: string; usage: UsageInfo }> {
-  const claude = getClaudeClient();
-  const model = "claude-sonnet-4-20250514";
+  const claude = await getClaudeClient();
+  const model = await getModel();
   const message = await claude.messages.create({
     model,
     max_tokens: 4096,
@@ -66,8 +93,8 @@ export async function* streamWithClaude(
   prompt: string,
   projectId?: string
 ): AsyncGenerator<string, UsageInfo> {
-  const claude = getClaudeClient();
-  const model = "claude-sonnet-4-20250514";
+  const claude = await getClaudeClient();
+  const model = await getModel();
   const stream = claude.messages.stream({
     model,
     max_tokens: 4096,
