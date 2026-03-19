@@ -34,6 +34,12 @@ import {
   Copy,
   Check,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const AuthTerminal = dynamic(
+  () => import("@/components/terminal/auth-terminal").then((m) => m.AuthTerminal),
+  { ssr: false }
+);
 
 interface AppSettings {
   dbMode: string;
@@ -91,9 +97,7 @@ export default function GlobalSettingsPage() {
   const [cliResult, setCliResult] = useState<TestResult | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [loginStatus, setLoginStatus] = useState<"idle" | "starting" | "waiting" | "submitting">("idle");
-  const [loginUrl, setLoginUrl] = useState<string | null>(null);
-  const [authCode, setAuthCode] = useState("");
+  const [showAuthTerminal, setShowAuthTerminal] = useState(false);
 
   const { data: settings, isLoading } = useQuery<AppSettings>({
     queryKey: ["app-settings"],
@@ -157,101 +161,10 @@ export default function GlobalSettingsPage() {
     toast.success("Claude Code connection removed");
   };
 
-  const handleLogin = async () => {
-    setLoginStatus("starting");
-    setLoginUrl(null);
-    setAuthCode("");
-
-    try {
-      const res = await fetch("/api/settings/claude-auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "login" }),
-      });
-
-      const reader = res.body?.getReader();
-      if (!reader) return;
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            console.log("[auth] SSE:", data);
-            if (data.type === "auth_url") {
-              setLoginUrl(data.url);
-              setLoginStatus("waiting");
-              window.open(data.url, "_blank");
-            }
-            if (data.type === "needs_code") {
-              console.log("[auth] ready for code input");
-            }
-            if (data.type === "code_sent") {
-              console.log("[auth] code was sent to claude PTY, waiting for response...");
-              setLoginStatus("submitting");
-            }
-            if (data.type === "done") {
-              console.log("[auth] done:", data.success, data.message);
-              setLoginStatus("idle");
-              setLoginUrl(null);
-              setAuthCode("");
-              if (data.success) {
-                await queryClient.refetchQueries({ queryKey: ["app-settings"] });
-                toast.success(data.message || "Logged in!");
-              } else {
-                toast.error(data.message || "Auth did not complete.");
-              }
-            }
-            if (data.type === "error") {
-              console.error("[auth] error:", data.message);
-              setLoginStatus("idle");
-              setLoginUrl(null);
-              setAuthCode("");
-              toast.error(data.message);
-            }
-          } catch { /* ignore parse errors */ }
-        }
-      }
-    } catch {
-      toast.error("Login failed");
-    } finally {
-      setLoginStatus("idle");
-    }
-  };
-
-  const handleSendCode = async () => {
-    if (!authCode.trim()) return;
-    const cleanCode = authCode.trim().replace(/#$/, "");
-    console.log("[auth] submitting code:", cleanCode.slice(0, 10) + "...", "length:", cleanCode.length);
-    setLoginStatus("submitting");
-    try {
-      const res = await fetch("/api/settings/claude-auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send_code", code: cleanCode }),
-      });
-      const data = await res.json();
-      console.log("[auth] send_code response:", data);
-      if (!data.success) {
-        console.error("[auth] send_code failed:", data.error);
-        toast.error(data.error || "Failed to submit code");
-        setLoginStatus("waiting");
-      }
-      // Success is handled by the SSE stream above
-    } catch (err) {
-      console.error("[auth] send_code error:", err);
-      toast.error("Failed to submit code");
-      setLoginStatus("waiting");
-    }
+  const handleAuthSuccess = async () => {
+    setShowAuthTerminal(false);
+    await queryClient.refetchQueries({ queryKey: ["app-settings"] });
+    toast.success("Successfully authenticated!");
   };
 
   const handleLogout = async () => {
@@ -639,8 +552,7 @@ export default function GlobalSettingsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Not in login flow — show login button */}
-                  {loginStatus === "idle" && (
+                  {!showAuthTerminal ? (
                     <div className="text-center py-6 space-y-4">
                       <div className="w-14 h-14 rounded-xl bg-[#f0f0f3] flex items-center justify-center mx-auto">
                         <Terminal className="w-7 h-7 text-[#a0a0a8]" />
@@ -653,126 +565,29 @@ export default function GlobalSettingsPage() {
                           Sign in with your Anthropic account to enable AI code execution in worktrees.
                         </p>
                       </div>
-                      <Button onClick={handleLogin} className="gap-2">
+                      <Button onClick={() => setShowAuthTerminal(true)} className="gap-2">
                         <LogIn className="w-4 h-4" />
                         Login with Anthropic
                       </Button>
-                      <p className="text-[11px] text-[#a0a0a8]">
-                        Or run <code className="bg-[#f0f0f3] px-1 rounded">claude auth login</code> in your terminal
-                      </p>
                     </div>
-                  )}
-
-                  {/* Login flow — starting */}
-                  {loginStatus === "starting" && (
-                    <div className="text-center py-8">
-                      <Loader2 className="w-6 h-6 text-[#5b5bd6] animate-spin mx-auto mb-3" />
-                      <p className="text-[13px] text-[#6e6e80]">Starting authentication...</p>
-                    </div>
-                  )}
-
-                  {/* Login flow — URL received, waiting for code */}
-                  {(loginStatus === "waiting" || loginStatus === "submitting") && loginUrl && (
-                    <div className="border border-[#5b5bd6]/20 bg-[#5b5bd6]/[0.03] rounded-lg overflow-hidden">
-                      <div className="px-5 py-4 space-y-4">
-                        {/* Step 1 */}
-                        <div className="flex items-center gap-3">
-                          <div className="w-6 h-6 rounded-full bg-[#30a46c] text-white flex items-center justify-center text-[12px] font-bold shrink-0">
-                            <Check className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-[14px] font-semibold text-[#0a0a0a]">
-                              Sign in with your Anthropic account
-                            </p>
-                            <p className="text-[12px] text-[#6e6e80]">
-                              A browser tab has opened. Complete sign-in there.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* URL fallback */}
-                        <div className="flex items-center gap-2 bg-white border border-[#e4e4e7] rounded-md px-3 py-2 ml-9">
-                          <a
-                            href={loginUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 text-[11px] font-mono text-[#5b5bd6] hover:underline truncate"
-                          >
-                            {loginUrl.length > 50 ? loginUrl.slice(0, 50) + "..." : loginUrl}
-                          </a>
-                          <a
-                            href={loginUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="shrink-0 p-1 rounded hover:bg-[#5b5bd6]/10 text-[#5b5bd6]"
-                            title="Open in browser"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-
-                        {/* Step 2 — paste code */}
-                        <div className="flex items-start gap-3 pt-2">
-                          <div className="w-6 h-6 rounded-full bg-[#5b5bd6] text-white flex items-center justify-center text-[12px] font-bold shrink-0">
-                            2
-                          </div>
-                          <div className="flex-1 space-y-2">
-                            <p className="text-[14px] font-semibold text-[#0a0a0a]">
-                              Paste the authorization code
-                            </p>
-                            <p className="text-[12px] text-[#6e6e80]">
-                              After signing in, the browser will show a code. Paste it here.
-                            </p>
-                            <div className="flex gap-2">
-                              <Input
-                                type="text"
-                                value={authCode}
-                                onChange={(e) => setAuthCode(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && authCode.trim() && loginStatus === "waiting") {
-                                    handleSendCode();
-                                  }
-                                }}
-                                placeholder="Paste code here..."
-                                className="font-mono text-[13px]"
-                                autoFocus
-                                disabled={loginStatus === "submitting"}
-                              />
-                              <Button
-                                onClick={handleSendCode}
-                                disabled={!authCode.trim() || loginStatus === "submitting"}
-                                className="gap-1.5 shrink-0"
-                              >
-                                {loginStatus === "submitting" ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Check className="w-4 h-4" />
-                                )}
-                                {loginStatus === "submitting" ? "Verifying..." : "Submit"}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="px-5 py-3 border-t border-[#5b5bd6]/10 flex justify-end">
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[13px] text-[#6e6e80]">
+                          Complete the login in the terminal below. A browser window will open for authentication.
+                        </p>
                         <Button
                           variant="ghost"
                           size="xs"
-                          onClick={() => {
-                            fetch("/api/settings/claude-auth", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ action: "cancel" }),
-                            });
-                            setLoginStatus("idle");
-                            setLoginUrl(null);
-                            setAuthCode("");
-                          }}
+                          onClick={() => setShowAuthTerminal(false)}
                         >
                           Cancel
                         </Button>
                       </div>
+                      <AuthTerminal
+                        onSuccess={handleAuthSuccess}
+                        onClose={() => setShowAuthTerminal(false)}
+                      />
                     </div>
                   )}
                 </div>

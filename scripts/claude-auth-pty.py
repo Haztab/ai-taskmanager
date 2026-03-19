@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
 Helper script that runs `claude auth login` in a PTY.
-Captures output (URL), reads auth code from a file, and sends it to the PTY.
-
-Usage: python3 claude-auth-pty.py <claude-binary> <code-file-path>
+Claude uses server-side polling — no code paste needed.
+Just captures the URL and waits for the process to exit.
 
 Output protocol (stdout, one per line):
   URL:<oauth-url>
-  NEEDS_CODE
-  CODE_SENT
   LOGIN_SUCCESS
   LOGIN_DONE
   ERROR:<message>
+  DEBUG:<message>
 """
 import pty, os, sys, select, time, re, signal
 
-if len(sys.argv) < 3:
-    print("ERROR:Usage: claude-auth-pty.py <binary> <code-file>", flush=True)
+def debug(msg):
+    print(f"DEBUG:{msg}", flush=True)
+
+if len(sys.argv) < 2:
+    print("ERROR:Usage: claude-auth-pty.py <binary>", flush=True)
     sys.exit(1)
 
 binary = sys.argv[1]
-code_file = sys.argv[2]
+debug(f"binary={binary}")
 
-# Set BROWSER=echo so claude prints URL instead of opening browser
 os.environ["BROWSER"] = "echo"
 os.environ["TERM"] = "dumb"
 
@@ -30,7 +30,6 @@ master, slave = pty.openpty()
 pid = os.fork()
 
 if pid == 0:
-    # Child: run claude auth login in the PTY
     os.close(master)
     os.setsid()
     os.dup2(slave, 0)
@@ -38,79 +37,66 @@ if pid == 0:
     os.dup2(slave, 2)
     os.close(slave)
     os.execvp(binary, [binary, "auth", "login"])
-    # If execvp fails
     os._exit(1)
 
-# Parent: read output, send code
 os.close(slave)
+debug(f"forked child pid={pid}")
 
 output = ""
 auth_url = None
-code_sent = False
-needs_code_sent = False
 
 def read_pty():
-    global output, auth_url, needs_code_sent
+    global output, auth_url
     try:
         data = os.read(master, 4096)
         if not data:
+            debug("PTY EOF")
             return False
         text = data.decode("utf-8", errors="replace")
         output += text
-        # Strip ANSI
-        clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', output)
+        clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+        clean = re.sub(r'\x1b\][^\x07]*\x07', '', clean)
+        stripped = clean.strip()
+        if stripped:
+            debug(f"PTY: {repr(stripped[:200])}")
+
         # Look for URL
+        clean_all = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', output)
         if not auth_url:
-            m = re.search(r'(https://claude\.ai/oauth/authorize[^\s\x1b]+)', clean)
+            m = re.search(r'(https://claude\.ai/oauth/authorize[^\s\x1b]+)', clean_all)
             if m:
                 auth_url = m.group(1)
                 print(f"URL:{auth_url}", flush=True)
-        # After URL found, signal code needed
-        if auth_url and not needs_code_sent:
-            needs_code_sent = True
-            print("NEEDS_CODE", flush=True)
+
         # Check for success
         if re.search(r'[Ss]uccess|[Ll]ogged.in|[Ww]elcome|[Aa]uthenticated', clean):
-            if auth_url:
-                print("LOGIN_SUCCESS", flush=True)
-                return False
+            debug(f"success pattern matched: {repr(stripped[:100])}")
+            print("LOGIN_SUCCESS", flush=True)
+            return False
         return True
-    except OSError:
+    except OSError as e:
+        debug(f"PTY OSError: {e}")
         return False
 
-# Main loop: read output, poll for code file
 try:
-    deadline = time.time() + 600  # 10 min timeout
+    deadline = time.time() + 600
+    debug("waiting for claude to complete (polling-based, no code needed)")
     while time.time() < deadline:
-        # Read any available PTY output
-        r, _, _ = select.select([master], [], [], 0.5)
+        r, _, _ = select.select([master], [], [], 1.0)
         if r:
             if not read_pty():
                 break
 
-        # Poll for code file
-        if auth_url and not code_sent and os.path.exists(code_file):
-            time.sleep(0.1)  # Let file finish writing
-            try:
-                with open(code_file, "r") as f:
-                    code = f.read().strip()
-                os.unlink(code_file)
-                if code:
-                    # Write code to PTY
-                    os.write(master, (code + "\r").encode())
-                    code_sent = True
-                    print("CODE_SENT", flush=True)
-            except Exception as e:
-                print(f"ERROR:Failed to read code: {e}", flush=True)
-
         # Check if child exited
         try:
-            wpid, status = os.waitpid(pid, os.WNOHANG)
+            wpid, wstatus = os.waitpid(pid, os.WNOHANG)
             if wpid != 0:
-                # Drain remaining output
+                exit_code = os.WEXITSTATUS(wstatus) if os.WIFEXITED(wstatus) else -1
+                debug(f"child exited, exit_code={exit_code}")
+                # Drain remaining
                 try:
                     while True:
-                        r, _, _ = select.select([master], [], [], 0.1)
+                        r, _, _ = select.select([master], [], [], 0.5)
                         if not r:
                             break
                         read_pty()
@@ -118,21 +104,19 @@ try:
                     pass
                 break
         except ChildProcessError:
+            debug("child already gone")
             break
 
+    debug("loop ended")
     print("LOGIN_DONE", flush=True)
 except Exception as e:
+    debug(f"exception: {e}")
     print(f"ERROR:{e}", flush=True)
 finally:
-    try:
-        os.close(master)
-    except:
-        pass
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except:
-        pass
-    try:
-        os.waitpid(pid, 0)
-    except:
-        pass
+    try: os.close(master)
+    except: pass
+    try: os.kill(pid, signal.SIGTERM)
+    except: pass
+    try: os.waitpid(pid, 0)
+    except: pass
+    debug("done")

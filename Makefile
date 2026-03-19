@@ -22,8 +22,12 @@ lint:
 typecheck:
 	npx tsc --noEmit
 
+pty-server:
+	node scripts/pty-server.mjs
+
 stop:
 	@pkill -f "next dev" 2>/dev/null && echo "✓ Dev server stopped." || echo "No dev server running."
+	@pkill -f "pty-server" 2>/dev/null; true
 	@pkill -f "claude-auth-pty" 2>/dev/null; true
 	@pkill -f "claude auth login" 2>/dev/null; true
 

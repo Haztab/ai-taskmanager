@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execSync, spawn, ChildProcess } from "child_process";
 import { prisma } from "@/lib/db";
-import { writeFileSync, unlinkSync, existsSync } from "fs";
+import { existsSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
 
 // Use globalThis to survive Next.js hot reloads
 const g = globalThis as unknown as {
   __claudeAuthChild?: ChildProcess | null;
-  __claudeAuthCodeFile?: string | null;
 };
 
 function log(...args: unknown[]) {
@@ -19,12 +17,10 @@ function log(...args: unknown[]) {
 export async function GET() {
   try {
     const binary = await getClaudeBinary();
-    log("GET /claude-auth — checking status with binary:", binary);
     const status = getAuthStatusSync(binary);
-    log("GET result:", JSON.stringify(status));
+    log("GET status:", status.loggedIn ? "logged in" : "not logged in");
     return NextResponse.json(status);
-  } catch (err) {
-    log("GET error:", err);
+  } catch {
     return NextResponse.json({ error: "Auth check failed" }, { status: 500 });
   }
 }
@@ -36,125 +32,69 @@ export async function POST(request: NextRequest) {
     const { action } = body;
     log("POST action:", action);
     const binary = await getClaudeBinary();
-    log("binary:", binary);
 
     // LOGOUT
     if (action === "logout") {
       log("logging out...");
       killActive();
       try {
-        const out = execSync(`${binary} auth logout 2>&1`, { encoding: "utf-8", timeout: 10000 });
-        log("logout output:", out.trim());
-      } catch (err) {
-        log("logout error (ok):", err instanceof Error ? err.message : err);
-      }
+        execSync(`${binary} auth logout 2>&1`, { encoding: "utf-8", timeout: 10000 });
+      } catch { /* ok */ }
       return NextResponse.json({ success: true, message: "Logged out" });
     }
 
     // CANCEL
     if (action === "cancel") {
-      log("cancelling active login");
+      log("cancelling");
       killActive();
       return NextResponse.json({ success: true });
-    }
-
-    // SEND_CODE
-    if (action === "send_code") {
-      const { code } = body;
-      log("send_code called, code length:", code?.length, "code preview:", code?.slice(0, 15) + "...");
-      if (!code) {
-        log("ERROR: no code provided");
-        return NextResponse.json({ error: "No code provided" }, { status: 400 });
-      }
-      const codeFile = g.__claudeAuthCodeFile;
-      log("codeFile from globalThis:", codeFile);
-      log("child alive:", !!(g.__claudeAuthChild && !g.__claudeAuthChild.killed));
-      if (!codeFile) {
-        log("ERROR: no active login session (codeFile is null)");
-        return NextResponse.json({ error: "No active login session" }, { status: 400 });
-      }
-      try {
-        const cleanCode = code.trim().replace(/#$/, "");
-        log("writing clean code to file, length:", cleanCode.length, "file:", codeFile);
-        writeFileSync(codeFile, cleanCode);
-        log("wrote code successfully, verifying file exists:", existsSync(codeFile));
-        return NextResponse.json({ success: true });
-      } catch (err) {
-        log("ERROR writing code:", err);
-        return NextResponse.json({ error: "Failed to send code" }, { status: 500 });
-      }
     }
 
     // CHECK
     if (action === "check") {
       const status = getAuthStatusSync(binary);
-      log("check result:", JSON.stringify(status));
+      log("check:", status.loggedIn);
       return NextResponse.json(status);
     }
 
-    // LOGIN
+    // LOGIN — spawn claude auth login, it polls server automatically
+    // No code paste needed — claude detects browser auth completion via polling
     if (action === "login") {
       log("=== LOGIN START ===");
       killActive();
 
-      const codeFilePath = join(tmpdir(), `claude-auth-code-${Date.now()}.txt`);
-      g.__claudeAuthCodeFile = codeFilePath;
-      log("code file path:", codeFilePath);
-
       const scriptPath = join(process.cwd(), "scripts", "claude-auth-pty.py");
-      log("python script:", scriptPath, "exists:", existsSync(scriptPath));
-      log("spawning: python3", scriptPath, binary, codeFilePath);
+      log("script:", scriptPath, "exists:", existsSync(scriptPath));
 
       const stream = new ReadableStream({
         start(controller) {
           const encoder = new TextEncoder();
           const send = (data: Record<string, unknown>) => {
-            log("SSE →", JSON.stringify(data));
+            log("SSE →", data.type);
             try {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
             } catch { /* closed */ }
           };
 
-          const child = spawn("python3", [scriptPath, binary, codeFilePath], {
+          const child = spawn("python3", [scriptPath, binary], {
             stdio: ["pipe", "pipe", "pipe"],
             env: { ...process.env },
           });
           g.__claudeAuthChild = child;
-          log("python spawned, pid:", child.pid);
+          log("spawned pid:", child.pid);
 
           child.stdout?.on("data", (data: Buffer) => {
             const text = data.toString().trim();
-            log("stdout:", text);
-
             for (const line of text.split("\n")) {
               const t = line.trim();
               if (!t) continue;
               if (t.startsWith("URL:")) {
-                const url = t.slice(4);
-                log("captured auth URL, length:", url.length);
-                send({ type: "auth_url", url });
-              } else if (t === "NEEDS_CODE") {
-                log("claude is waiting for auth code");
-                send({ type: "needs_code" });
-              } else if (t === "CODE_SENT") {
-                log("code was written to PTY stdin");
-                send({ type: "code_sent" });
-              } else if (t === "LOGIN_SUCCESS") {
-                log("LOGIN_SUCCESS detected!");
+                log("auth URL captured");
+                send({ type: "auth_url", url: t.slice(4) });
+              } else if (t === "LOGIN_SUCCESS" || t === "LOGIN_DONE") {
+                log(t, "— checking auth status...");
                 const status = getAuthStatusSync(binary);
-                log("auth status after success:", JSON.stringify(status));
-                send({
-                  type: "done",
-                  success: status.loggedIn,
-                  message: status.loggedIn
-                    ? "Successfully authenticated!"
-                    : "Login process completed.",
-                  account: status,
-                });
-              } else if (t === "LOGIN_DONE") {
-                log("LOGIN_DONE — process finished");
-                const status = getAuthStatusSync(binary);
-                log("auth status after done:", JSON.stringify(status));
+                log("auth status:", status.loggedIn);
                 send({
                   type: "done",
                   success: status.loggedIn,
@@ -164,10 +104,10 @@ export async function POST(request: NextRequest) {
                   account: status,
                 });
               } else if (t.startsWith("ERROR:")) {
-                log("ERROR from python:", t.slice(6));
+                log("error:", t.slice(6));
                 send({ type: "error", message: t.slice(6) });
-              } else {
-                log("unhandled stdout line:", t);
+              } else if (t.startsWith("DEBUG:")) {
+                log("py:", t.slice(6));
               }
             }
           });
@@ -176,17 +116,14 @@ export async function POST(request: NextRequest) {
             log("stderr:", data.toString().trim());
           });
 
-          child.on("close", (exitCode, signal) => {
-            log("python process closed, exitCode:", exitCode, "signal:", signal);
+          child.on("close", (exitCode) => {
+            log("process exited:", exitCode);
             g.__claudeAuthChild = null;
-            g.__claudeAuthCodeFile = null;
             const status = getAuthStatusSync(binary);
-            log("final auth status:", JSON.stringify(status));
             if (status.loggedIn) {
               send({ type: "done", success: true, message: "Authenticated!", account: status });
             }
             try { controller.close(); } catch { /* ok */ }
-            try { unlinkSync(codeFilePath); } catch { /* ok */ }
           });
 
           child.on("error", (err) => {
@@ -206,27 +143,19 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    log("unknown action:", action);
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
-    log("POST error:", error);
+    log("error:", error);
     return NextResponse.json({ error: "Auth failed" }, { status: 500 });
   }
 }
 
 function killActive() {
   const child = g.__claudeAuthChild;
-  log("killActive — child:", child?.pid, "killed:", child?.killed);
   if (child && !child.killed) {
     try { child.kill("SIGTERM"); } catch { /* ok */ }
   }
   g.__claudeAuthChild = null;
-  const codeFile = g.__claudeAuthCodeFile;
-  if (codeFile) {
-    log("removing code file:", codeFile);
-    try { unlinkSync(codeFile); } catch { /* ok */ }
-  }
-  g.__claudeAuthCodeFile = null;
 }
 
 async function getClaudeBinary(): Promise<string> {
