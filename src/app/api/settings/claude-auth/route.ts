@@ -141,21 +141,52 @@ export async function POST(request: NextRequest) {
         log("couldn't fetch profile, continuing without email");
       }
 
+      // Provision an API key using the OAuth token
+      let apiKey: string | null = null;
+      try {
+        log("provisioning API key via OAuth token...");
+        const keyRes = await fetch("https://api.anthropic.com/v1/organizations/api_keys", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${tokens.access_token}`,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            name: `TaskFlow AI (${new Date().toISOString().slice(0, 10)})`,
+          }),
+        });
+
+        if (keyRes.ok) {
+          const keyData = await keyRes.json();
+          apiKey = keyData.api_key || keyData.key || keyData.secret || null;
+          log("API key provisioned successfully");
+        } else {
+          const keyErr = await keyRes.text();
+          log("API key provisioning failed:", keyRes.status, keyErr.slice(0, 200));
+        }
+      } catch (e) {
+        log("API key provisioning error:", e instanceof Error ? e.message : e);
+      }
+
       // Store in DB
+      const updateData: Record<string, unknown> = {
+        claudeOAuthAccessToken: tokens.access_token,
+        claudeOAuthRefreshToken: tokens.refresh_token || null,
+        claudeOAuthExpiresAt: expiresAt,
+        claudeOAuthEmail: email,
+      };
+      // If we got an API key, store it so the SDK can use it directly
+      if (apiKey) {
+        updateData.anthropicApiKey = apiKey;
+      }
+
       await prisma.appSettings.upsert({
         where: { id: "singleton" },
-        update: {
-          claudeOAuthAccessToken: tokens.access_token,
-          claudeOAuthRefreshToken: tokens.refresh_token || null,
-          claudeOAuthExpiresAt: expiresAt,
-          claudeOAuthEmail: email,
-        },
+        update: updateData,
         create: {
           id: "singleton",
-          claudeOAuthAccessToken: tokens.access_token,
-          claudeOAuthRefreshToken: tokens.refresh_token || null,
-          claudeOAuthExpiresAt: expiresAt,
-          claudeOAuthEmail: email,
+          ...updateData,
         },
       });
 
@@ -166,6 +197,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         email,
+        apiKeyProvisioned: !!apiKey,
         expiresAt: expiresAt.toISOString(),
       });
     }

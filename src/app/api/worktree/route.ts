@@ -5,21 +5,31 @@ import { createWorktree, removeWorktree } from "@/lib/git/worktree";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { taskId, repoPath } = body;
+    const { taskId } = body;
 
-    if (!taskId || !repoPath) {
+    if (!taskId) {
       return NextResponse.json(
-        { error: "taskId and repoPath are required" },
+        { error: "taskId is required" },
         { status: 400 }
       );
     }
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
+      include: { project: true },
     });
 
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    const repoPath = body.repoPath || task.project.repoPath;
+
+    if (!repoPath) {
+      return NextResponse.json(
+        { error: "No repository path configured. Set repoPath on the project first." },
+        { status: 400 }
+      );
     }
 
     const slug = task.title
