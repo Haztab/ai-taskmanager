@@ -59,6 +59,9 @@ interface KanbanColumnProps {
   tasks: Task[];
   projectId: string;
   onQuickAdd: (title: string, status: TaskStatus) => void;
+  onEditTask?: (task: Task) => void;
+  onDeleteTask?: (taskId: string) => void;
+  onClickTask?: (task: Task) => void;
 }
 
 export function KanbanColumn({
@@ -67,6 +70,9 @@ export function KanbanColumn({
   tasks,
   projectId,
   onQuickAdd,
+  onEditTask,
+  onDeleteTask,
+  onClickTask,
 }: KanbanColumnProps) {
   const [quickAddValue, setQuickAddValue] = useState("");
   const [isAddingTask, setIsAddingTask] = useState(false);
@@ -150,7 +156,14 @@ export function KanbanColumn({
           strategy={verticalListSortingStrategy}
         >
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} projectId={projectId} />
+            <TaskCard
+              key={task.id}
+              task={task}
+              projectId={projectId}
+              onEdit={onEditTask}
+              onDelete={onDeleteTask}
+              onClick={onClickTask}
+            />
           ))}
         </SortableContext>
 

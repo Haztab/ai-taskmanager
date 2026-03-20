@@ -1,6 +1,18 @@
 import { prisma } from "@/lib/db";
 import { execFile } from "child_process";
 
+/**
+ * Strip markdown code fences from Claude's output.
+ * The CLI often wraps JSON in ```json ... ``` blocks.
+ */
+function stripCodeFences(text: string): string {
+  const trimmed = text.trim();
+  // Match ```json ... ``` or ``` ... ```
+  const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+  if (match) return match[1].trim();
+  return trimmed;
+}
+
 export interface UsageInfo {
   inputTokens: number;
   outputTokens: number;
@@ -94,7 +106,7 @@ export async function generateWithClaude(
     const child = execFile(
       binary,
       ["-p", "--output-format", "json", "--model", model],
-      { timeout: 120000, maxBuffer: 10 * 1024 * 1024 },
+      { timeout: 120000, maxBuffer: 10 * 1024 * 1024, env: { ...process.env }, shell: true },
       (error, stdout, stderr) => {
         if (error) {
           reject(new Error(`Claude CLI error: ${stderr || error.message}`));
@@ -121,7 +133,7 @@ export async function generateWithClaude(
           }
 
           trackUsage(usage, projectId);
-          resolve({ text: result.result || "", usage });
+          resolve({ text: stripCodeFences(result.result || ""), usage });
         } catch {
           reject(new Error(`Failed to parse Claude CLI output: ${stdout.slice(0, 200)}`));
         }

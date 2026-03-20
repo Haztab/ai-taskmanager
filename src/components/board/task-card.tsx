@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
-import { LockIcon } from "lucide-react";
+import { LockIcon, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PRIORITIES } from "@/types";
 import type { Task } from "@/hooks/use-board";
@@ -19,9 +19,12 @@ const PRIORITY_PILL_COLORS: Record<number, string> = {
 interface TaskCardProps {
   task: Task;
   projectId: string;
+  onEdit?: (task: Task) => void;
+  onDelete?: (taskId: string) => void;
+  onClick?: (task: Task) => void;
 }
 
-export function TaskCard({ task, projectId }: TaskCardProps) {
+export function TaskCard({ task, projectId, onEdit, onDelete, onClick }: TaskCardProps) {
   const router = useRouter();
 
   const {
@@ -53,12 +56,14 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
   const workstreamColor = task.workstream?.color ?? "transparent";
 
   const handleClick = (e: React.MouseEvent) => {
-    // Don't navigate if we're dragging
     if (isDragging) return;
-    // Don't navigate if user clicked during a potential drag
     const target = e.target as HTMLElement;
     if (target.closest("[data-no-navigate]")) return;
-    router.push(`/projects/${projectId}/tasks/${task.id}`);
+    if (onClick) {
+      onClick(task);
+    } else {
+      router.push(`/projects/${projectId}/tasks/${task.id}`);
+    }
   };
 
   return (
@@ -77,6 +82,7 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
         isDragging && "z-50 opacity-50 shadow-lg"
       )}
     >
+      {/* Title row */}
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -88,11 +94,48 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
             </p>
           </div>
         </div>
+
+        {/* Quick actions (visible on hover) */}
+        <div
+          data-no-navigate
+          className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          {onEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(task);
+              }}
+              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Edit task"
+            >
+              <Pencil className="size-3" />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(task.id);
+              }}
+              className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Delete task"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Description preview */}
+      {task.description && (
+        <p className="mt-1 text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+          {task.description}
+        </p>
+      )}
 
       {/* Bottom row: badges */}
       <div className="mt-2 flex items-center gap-1.5">
-        {/* Priority pill badge */}
         {priorityConfig && (
           <span
             className={cn(
@@ -107,7 +150,6 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
           </span>
         )}
 
-        {/* Effort badge */}
         {task.estimatedEffort && (
           <span className="ml-auto inline-flex items-center rounded-full bg-muted/80 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground ring-1 ring-inset ring-muted-foreground/10">
             {task.estimatedEffort}

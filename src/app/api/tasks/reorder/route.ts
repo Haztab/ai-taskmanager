@@ -4,13 +4,17 @@ import { prisma } from "@/lib/db";
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tasks } = body as {
-      tasks: { id: string; status: string; sortOrder: number }[];
-    };
 
-    if (!tasks || !Array.isArray(tasks)) {
+    // Support both single-task { taskId, status, sortOrder } and batch { tasks: [...] }
+    const tasks: { id: string; status: string; sortOrder: number }[] = body.tasks
+      ? body.tasks
+      : body.taskId
+        ? [{ id: body.taskId, status: body.status, sortOrder: body.sortOrder }]
+        : [];
+
+    if (tasks.length === 0) {
       return NextResponse.json(
-        { error: "tasks array is required" },
+        { error: "taskId or tasks array is required" },
         { status: 400 }
       );
     }

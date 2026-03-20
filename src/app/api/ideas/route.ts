@@ -16,6 +16,9 @@ export async function GET(request: NextRequest) {
     const ideas = await prisma.idea.findMany({
       where: { projectId },
       orderBy: { createdAt: "desc" },
+      include: {
+        epic: { select: { id: true, title: true } },
+      },
     });
 
     return NextResponse.json(ideas);

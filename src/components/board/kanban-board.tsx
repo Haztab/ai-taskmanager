@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -22,6 +22,7 @@ import { WorkstreamTabs } from "@/components/layout/workstream-tabs";
 import { KanbanColumn } from "./kanban-column";
 import { TaskCard } from "./task-card";
 import { TaskFormDialog } from "./task-form-dialog";
+import { TaskDetailModal } from "./task-detail-modal";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -31,6 +32,7 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ projectId }: KanbanBoardProps) {
   const {
+    tasks: allTasks,
     groupedTasks,
     isLoading,
     workstreams,
@@ -40,12 +42,24 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
     createTask,
     updateTask,
     reorderTask,
+    deleteTask,
   } = useBoard(projectId);
 
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [defaultStatus, setDefaultStatus] = useState<TaskStatus>("backlog");
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // Task count summary
+  const taskCount = useMemo(() => {
+    let total = 0;
+    for (const status of TASK_STATUSES) {
+      total += groupedTasks[status.value].length;
+    }
+    return total;
+  }, [groupedTasks]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -79,23 +93,18 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
       const draggedTaskId = draggedTask.id;
       const sourceStatus = draggedTask.status as TaskStatus;
 
-      // Check if task is blocked by unfinished dependencies
       const hasUnfinishedDeps =
         draggedTask.dependencies &&
         draggedTask.dependencies.some((d) => d.dependency.status !== "done");
 
-      // Determine the target status
       let targetStatus: TaskStatus;
       const overData = over.data.current;
 
       if (overData?.type === "column") {
-        // Dropped directly on a column
         targetStatus = overData.status as TaskStatus;
       } else if (overData?.type === "task") {
-        // Dropped on another task - use that task's status
         targetStatus = (overData.task as Task).status as TaskStatus;
       } else {
-        // Try parsing from the over.id if it's a column id
         const overId = String(over.id);
         if (overId.startsWith("column-")) {
           targetStatus = overId.replace("column-", "") as TaskStatus;
@@ -104,7 +113,6 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         }
       }
 
-      // Block moving tasks with unfinished deps to active columns
       const activeStatuses: TaskStatus[] = ["in_progress", "review", "done"];
       if (hasUnfinishedDeps && activeStatuses.includes(targetStatus)) {
         toast.error("Cannot move: task has unfinished dependencies");
@@ -118,7 +126,6 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
           : [...groupedTasks[targetStatus]];
 
       if (sourceStatus === targetStatus) {
-        // Reorder within the same column
         const oldIndex = sourceTasks.findIndex((t) => t.id === draggedTaskId);
         const overTaskId = String(over.id);
         const newIndex = sourceTasks.findIndex((t) => t.id === overTaskId);
@@ -141,18 +148,15 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
           }
         );
       } else {
-        // Moved to a different column
         let newSortOrder: number;
 
         if (overData?.type === "task") {
-          // Dropped on a specific task - insert at that position
           const overTaskId = String(over.id);
           const targetIndex = targetTasks.findIndex(
             (t) => t.id === overTaskId
           );
           newSortOrder = targetIndex >= 0 ? targetIndex : targetTasks.length;
         } else {
-          // Dropped on the column itself - add to end
           newSortOrder = targetTasks.length;
         }
 
@@ -175,12 +179,18 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
 
   const handleQuickAdd = useCallback(
     (title: string, status: TaskStatus) => {
+      // Find workstream matching active filter for context-aware quick-add
+      const workstream = activeWorkstreamSlug
+        ? workstreams.find((ws) => ws.slug === activeWorkstreamSlug)
+        : undefined;
+
       createTask.mutate(
         {
           title,
           status,
           priority: 3,
           projectId,
+          workstreamId: workstream?.id ?? undefined,
         },
         {
           onError: () => {
@@ -189,7 +199,28 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         }
       );
     },
-    [createTask, projectId]
+    [createTask, projectId, activeWorkstreamSlug, workstreams]
+  );
+
+  const handleClickTask = useCallback((task: Task) => {
+    setDetailTaskId(task.id);
+    setDetailOpen(true);
+  }, []);
+
+  const handleEditTask = useCallback((task: Task) => {
+    setEditingTask(task);
+    setDefaultStatus(task.status);
+    setDialogOpen(true);
+  }, []);
+
+  const handleDeleteTask = useCallback(
+    (taskId: string) => {
+      deleteTask.mutate(taskId, {
+        onSuccess: () => toast.success("Task deleted"),
+        onError: () => toast.error("Failed to delete task"),
+      });
+    },
+    [deleteTask]
   );
 
   const handleFormSubmit = useCallback(
@@ -257,25 +288,32 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Workstream filter tabs + add button */}
+      {/* Workstream filter tabs + task count + add button */}
       <div className="flex items-center justify-between border-b pr-4">
         <WorkstreamTabs
           workstreams={workstreams}
           activeSlug={activeWorkstreamSlug}
           onSelect={setActiveWorkstreamSlug}
         />
-        <Button
-          size="sm"
-          className="gap-1.5 bg-primary font-semibold shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
-          onClick={() => {
-            setEditingTask(null);
-            setDefaultStatus("todo");
-            setDialogOpen(true);
-          }}
-        >
-          <PlusIcon className="size-4" />
-          Add Task
-        </Button>
+        <div className="flex items-center gap-3">
+          {taskCount > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {taskCount} task{taskCount !== 1 ? "s" : ""}
+            </span>
+          )}
+          <Button
+            size="sm"
+            className="gap-1.5 bg-primary font-semibold shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+            onClick={() => {
+              setEditingTask(null);
+              setDefaultStatus("todo");
+              setDialogOpen(true);
+            }}
+          >
+            <PlusIcon className="size-4" />
+            Add Task
+          </Button>
+        </div>
       </div>
 
       {/* Board columns */}
@@ -294,6 +332,9 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
               tasks={groupedTasks[statusConfig.value]}
               projectId={projectId}
               onQuickAdd={handleQuickAdd}
+              onEditTask={handleEditTask}
+              onDeleteTask={handleDeleteTask}
+              onClickTask={handleClickTask}
             />
           ))}
         </div>
@@ -321,6 +362,17 @@ export function KanbanBoard({ projectId }: KanbanBoardProps) {
         defaultStatus={defaultStatus}
         onSubmit={handleFormSubmit}
         isSubmitting={createTask.isPending || updateTask.isPending}
+      />
+
+      {/* Task detail modal */}
+      <TaskDetailModal
+        taskId={detailTaskId}
+        projectId={projectId}
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setDetailOpen(open);
+          if (!open) setDetailTaskId(null);
+        }}
       />
     </div>
   );

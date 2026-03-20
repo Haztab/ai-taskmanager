@@ -21,7 +21,7 @@ export function WorkstreamTabs({
   onSelect,
 }: WorkstreamTabsProps) {
   return (
-    <div className="flex items-center gap-1 border-b px-4">
+    <div className="flex items-center gap-1 px-4">
       <button
         onClick={() => onSelect(null)}
         className={cn(
