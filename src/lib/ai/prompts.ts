@@ -12,7 +12,7 @@ Project: {projectDescription}
 
 Return ONLY the JSON array, no other text.`;
 
-export const PROMOTE_IDEA_PROMPT = `You are a senior software architect. Given a feature idea, break it down into an epic with concrete development tasks.
+export const PROMOTE_IDEA_PROMPT = `You are a senior software architect. Given a feature idea, break it down into an epic with concrete development tasks and their dependencies.
 
 Feature Idea:
 Title: {ideaTitle}
@@ -20,13 +20,17 @@ Description: {ideaDescription}
 
 Available workstreams: {workstreams}
 
-Generate an epic with 3-8 tasks. For each task provide:
+Generate an epic with 3-8 tasks. Tasks are ordered by index (0, 1, 2, ...). For each task provide:
 - title: Clear, actionable task name
 - description: What needs to be implemented
 - userStory: "As a [role], I want [feature] so that [benefit]"
 - acceptanceCriteria: Array of testable criteria
 - estimatedEffort: One of XS, S, M, L, XL
 - workstream: One of the available workstream slugs
+- priority: 1 (critical), 2 (high), 3 (medium), or 4 (low)
+- dependsOn: Array of task indexes (0-based) that must be completed before this task can start. Use [] for tasks with no dependencies. Foundational tasks should come first with no dependencies.
+
+Example: if task at index 2 depends on tasks at index 0 and 1, set "dependsOn": [0, 1]
 
 Return as JSON:
 {

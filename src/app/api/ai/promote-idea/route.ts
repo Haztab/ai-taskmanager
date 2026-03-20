@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
         acceptanceCriteria: string[];
         estimatedEffort: string;
         workstream: string;
+        priority?: number;
+        dependsOn?: number[];
       }[];
     };
 
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Create all tasks first
     const createdTasks = await Promise.all(
       result.tasks.map(async (task, index) => {
         const workstream = idea.project.workstreams.find(
@@ -66,6 +69,7 @@ export async function POST(request: NextRequest) {
             userStory: task.userStory,
             acceptanceCriteria: JSON.stringify(task.acceptanceCriteria),
             estimatedEffort: task.estimatedEffort,
+            priority: task.priority ?? 3,
             sortOrder: index,
             projectId: idea.projectId,
             epicId: epic.id,
@@ -75,13 +79,33 @@ export async function POST(request: NextRequest) {
       })
     );
 
+    // Create dependencies based on dependsOn indexes
+    const dependencyRecords: { dependentId: string; dependencyId: string }[] = [];
+    for (let i = 0; i < result.tasks.length; i++) {
+      const deps = result.tasks[i].dependsOn ?? [];
+      for (const depIndex of deps) {
+        if (depIndex >= 0 && depIndex < createdTasks.length && depIndex !== i) {
+          dependencyRecords.push({
+            dependentId: createdTasks[i].id,
+            dependencyId: createdTasks[depIndex].id,
+          });
+        }
+      }
+    }
+
+    if (dependencyRecords.length > 0) {
+      await prisma.taskDependency.createMany({
+        data: dependencyRecords,
+      });
+    }
+
     await prisma.idea.update({
       where: { id: ideaId },
       data: { isPromoted: true, epicId: epic.id },
     });
 
     return NextResponse.json(
-      { epic, tasks: createdTasks },
+      { epic, tasks: createdTasks, dependencies: dependencyRecords.length },
       { status: 201 }
     );
   } catch (error) {
