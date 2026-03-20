@@ -31,6 +31,8 @@ import {
   Link2,
   Sparkles,
   GitBranch,
+  GitMerge,
+  GitCommit,
   Pencil,
   X,
   Save,
@@ -38,6 +40,7 @@ import {
   Trash2,
   ExternalLink,
   Terminal,
+  Loader2,
 } from "lucide-react";
 import {
   type TaskStatus,
@@ -146,6 +149,12 @@ export function TaskDetailModal({
   const [isEditing, setIsEditing] = useState(false);
   const [depSearch, setDepSearch] = useState("");
   const [showDepPicker, setShowDepPicker] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [isGeneratingCommitMsg, setIsGeneratingCommitMsg] = useState(false);
+  const [committed, setCommitted] = useState(false);
+  const [merged, setMerged] = useState(false);
   const [editForm, setEditForm] = useState<{
     title?: string;
     description?: string;
@@ -270,6 +279,141 @@ export function TaskDetailModal({
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const generateCommitMessage = async () => {
+    if (!task?.worktreePath) return;
+    setIsGeneratingCommitMsg(true);
+    try {
+      // Get diff stats
+      const statusRes = await fetch("/api/worktree/git", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status", worktreePath: task.worktreePath }),
+      });
+      const statusData = await statusRes.json();
+
+      // Generate commit message with Claude
+      const prompt = `Generate a concise git commit message (one line, max 72 chars) using conventional commits format (feat/fix/refactor/docs/etc) for these changes:
+
+Task: ${task.title}
+${task.description ? `Description: ${task.description}` : ""}
+
+Changed files:
+${statusData.status || "no changes"}
+
+${statusData.diffStat || ""}
+
+Return ONLY the commit message, nothing else. No quotes, no explanation.`;
+
+      const res = await fetch("/api/ideas/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          projectDescription: prompt,
+        }),
+      });
+
+      // This is SSE, but we just need the text
+      if (!res.ok) throw new Error("Failed to generate");
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response");
+
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.text) accumulated += data.text;
+          } catch { /* skip */ }
+        }
+      }
+
+      // Clean up the response
+      const msg = accumulated.trim().replace(/^["']|["']$/g, "").split("\n")[0].trim();
+      if (msg) setCommitMessage(msg);
+    } catch (error) {
+      // Fallback to a simple generated message
+      setCommitMessage(`feat: ${task.title.toLowerCase()}`);
+    } finally {
+      setIsGeneratingCommitMsg(false);
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!task?.worktreePath || !commitMessage.trim()) return;
+    setIsCommitting(true);
+    try {
+      const res = await fetch("/api/worktree/git", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "commit",
+          worktreePath: task.worktreePath,
+          commitMessage: commitMessage.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Commit failed");
+      setCommitted(true);
+      toast.success(`Committed: ${data.commitHash} on ${data.branch}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Commit failed");
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleMerge = async () => {
+    if (!task?.branchName) return;
+
+    // Get the project to find repoPath
+    let repoPath: string | null = null;
+    try {
+      const projRes = await fetch(`/api/projects/${projectId}`);
+      if (projRes.ok) {
+        const proj = await projRes.json();
+        repoPath = proj.repoPath;
+      }
+    } catch { /* ignore */ }
+
+    if (!repoPath) {
+      toast.error("No repository path configured on the project");
+      return;
+    }
+
+    setIsMerging(true);
+    try {
+      const res = await fetch("/api/worktree/git", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "merge",
+          repoPath,
+          branchName: task.branchName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Merge failed");
+      setMerged(true);
+      toast.success(`Merged ${task.branchName} into main!`);
+      queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Merge failed");
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
   const startEditing = () => {
     if (!task) return;
     setEditForm({
@@ -293,7 +437,12 @@ export function TaskDetailModal({
   };
 
   const handleClose = (o: boolean) => {
-    if (!o) setIsEditing(false);
+    if (!o) {
+      setIsEditing(false);
+      setCommitMessage("");
+      setCommitted(false);
+      setMerged(false);
+    }
     onOpenChange(o);
   };
 
@@ -917,6 +1066,97 @@ export function TaskDetailModal({
                       Full Page
                     </Button>
                   </div>
+
+                  {/* Git: Commit & Merge (shown when done and has worktree) */}
+                  {task.status === "done" && task.worktreePath && !merged && (
+                    <div className="space-y-3 pt-3 border-t">
+                      {!committed ? (
+                        <>
+                          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                            <GitCommit className="h-3.5 w-3.5" />
+                            Commit Changes
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={isGeneratingCommitMsg ? "Generating commit message..." : commitMessage}
+                              onChange={(e) => setCommitMessage(e.target.value)}
+                              placeholder={`feat: ${task.title.toLowerCase()}`}
+                              className="h-8 text-sm flex-1 font-mono"
+                              disabled={isGeneratingCommitMsg}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && commitMessage.trim()) {
+                                  handleCommit();
+                                }
+                              }}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1 h-8 text-xs shrink-0"
+                              onClick={generateCommitMessage}
+                              disabled={isGeneratingCommitMsg}
+                              title="Generate commit message with AI"
+                            >
+                              {isGeneratingCommitMsg ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3.5 w-3.5" />
+                              )}
+                              AI
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="gap-1.5 h-8 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                              onClick={handleCommit}
+                              disabled={isCommitting || isGeneratingCommitMsg || !commitMessage.trim()}
+                            >
+                              {isCommitting ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <GitCommit className="h-3.5 w-3.5" />
+                              )}
+                              {isCommitting ? "Committing..." : "Commit"}
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 border gap-1">
+                              <GitCommit className="h-3 w-3" />
+                              Committed
+                            </Badge>
+                            <span className="text-xs text-muted-foreground font-mono">
+                              {task.branchName}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+                            onClick={handleMerge}
+                            disabled={isMerging}
+                          >
+                            {isMerging ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <GitMerge className="h-3.5 w-3.5" />
+                            )}
+                            {isMerging ? "Merging..." : "Merge to Main"}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Merged confirmation */}
+                  {merged && (
+                    <div className="pt-3 border-t">
+                      <Badge className="bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30 border gap-1">
+                        <GitMerge className="h-3 w-3" />
+                        Merged to main
+                      </Badge>
+                    </div>
+                  )}
                 </section>
               )}
             </>
