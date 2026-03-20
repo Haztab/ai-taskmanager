@@ -608,7 +608,7 @@ export default function TaskDetailPage() {
             }}
             onSessionComplete={async () => {
               // Auto-move to review when Claude session completes
-              if (task.status === "in_progress") {
+              if (task.status !== "review" && task.status !== "done") {
                 await fetch(`/api/tasks/${taskId}`, {
                   method: "PUT",
                   headers: { "Content-Type": "application/json" },
