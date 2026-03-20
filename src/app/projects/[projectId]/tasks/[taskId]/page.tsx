@@ -600,6 +600,12 @@ export default function TaskDetailPage() {
             worktreePath={task.worktreePath}
             isBlocked={isBlocked}
             blockedBy={blockedByNames}
+            taskContext={{
+              title: task.title,
+              description: task.description,
+              acceptanceCriteria: task.acceptanceCriteria,
+              userStory: task.userStory,
+            }}
             onSessionComplete={async () => {
               // Auto-move to review when Claude session completes
               if (task.status === "in_progress") {
