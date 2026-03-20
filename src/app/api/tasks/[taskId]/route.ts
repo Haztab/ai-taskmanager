@@ -12,11 +12,17 @@ export async function GET(
       include: {
         epic: true,
         workstream: true,
-        dependencies: {
-          include: { dependency: true },
-        },
+        // "dependents" = this task depends on these (what blocks this task)
         dependents: {
-          include: { dependent: true },
+          include: {
+            dependency: { select: { id: true, title: true, status: true } },
+          },
+        },
+        // "dependencies" = other tasks depend on this one (what this task blocks)
+        dependencies: {
+          include: {
+            dependent: { select: { id: true, title: true, status: true } },
+          },
         },
         sessions: {
           orderBy: { createdAt: "desc" },
@@ -28,7 +34,15 @@ export async function GET(
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    return NextResponse.json(task);
+    // Rename for frontend clarity:
+    // "dependencies" = tasks this task depends on (blockers)
+    // "dependents" = tasks that depend on this task
+    const { dependents, dependencies: reverseDeps, ...rest } = task;
+    return NextResponse.json({
+      ...rest,
+      dependencies: dependents,  // what blocks me
+      dependents: reverseDeps,   // what I block
+    });
   } catch (error) {
     console.error("Failed to fetch task:", error);
     return NextResponse.json(

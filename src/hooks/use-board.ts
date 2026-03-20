@@ -136,9 +136,25 @@ export function useBoard(projectId: string) {
       }
     }
 
-    // Sort by sortOrder within each group
+    // Sort: unblocked first, then by priority (1=critical first), then sortOrder
     for (const status of TASK_STATUSES) {
-      groups[status.value].sort((a, b) => a.sortOrder - b.sortOrder);
+      groups[status.value].sort((a, b) => {
+        const aBlocked = (a.dependencies ?? []).some(
+          (d) => d.dependency.status !== "done"
+        );
+        const bBlocked = (b.dependencies ?? []).some(
+          (d) => d.dependency.status !== "done"
+        );
+
+        // Unblocked tasks first
+        if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
+
+        // Then by priority (lower number = higher priority)
+        if (a.priority !== b.priority) return a.priority - b.priority;
+
+        // Then by sortOrder
+        return a.sortOrder - b.sortOrder;
+      });
     }
 
     return groups;

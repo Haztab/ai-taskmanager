@@ -129,6 +129,12 @@ function getPriorityStyle(priority: number): string {
   }
 }
 
+interface SimpleTask {
+  id: string;
+  title: string;
+  status: string;
+}
+
 export function TaskDetailModal({
   taskId,
   projectId,
@@ -138,6 +144,8 @@ export function TaskDetailModal({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  const [depSearch, setDepSearch] = useState("");
+  const [showDepPicker, setShowDepPicker] = useState(false);
   const [editForm, setEditForm] = useState<{
     title?: string;
     description?: string;
@@ -156,6 +164,56 @@ export function TaskDetailModal({
       return res.json();
     },
     enabled: !!taskId && open,
+  });
+
+  // Fetch all tasks in project for dependency picker
+  const { data: allTasks = [] } = useQuery<SimpleTask[]>({
+    queryKey: ["tasks", projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/tasks?projectId=${projectId}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!projectId && open,
+  });
+
+  const addDependency = useMutation({
+    mutationFn: async (dependencyId: string) => {
+      const res = await fetch(`/api/tasks/${taskId}/dependencies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dependencyId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed" }));
+        throw new Error(err.error || "Failed to add dependency");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+      setDepSearch("");
+      setShowDepPicker(false);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const removeDependency = useMutation({
+    mutationFn: async (dependencyId: string) => {
+      const res = await fetch(`/api/tasks/${taskId}/dependencies`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dependencyId }),
+      });
+      if (!res.ok) throw new Error("Failed to remove dependency");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const updateTask = useMutation({
@@ -609,24 +667,44 @@ export function TaskDetailModal({
               </section>
 
               {/* Dependencies */}
-              {task.dependencies && task.dependencies.length > 0 && (
-                <section>
-                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <section>
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
                     <Link2 className="h-3.5 w-3.5" />
                     Dependencies
-                  </h4>
-                  <ul className="space-y-1.5">
+                    {task.dependencies && task.dependencies.length > 0 && (
+                      <span className="text-[10px] font-normal">
+                        ({task.dependencies.length})
+                      </span>
+                    )}
+                  </span>
+                  {!showDepPicker && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[10px] gap-1 px-2"
+                      onClick={() => setShowDepPicker(true)}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add
+                    </Button>
+                  )}
+                </h4>
+
+                {/* Existing dependencies */}
+                {task.dependencies && task.dependencies.length > 0 && (
+                  <ul className="space-y-1.5 mb-2">
                     {task.dependencies.map((dep) => (
                       <li
                         key={dep.id}
-                        className="flex items-center gap-2 text-sm p-2 rounded-lg border bg-muted/30"
+                        className="flex items-center gap-2 text-sm p-2 rounded-lg border bg-muted/30 group"
                       >
                         {dep.dependency.status === "done" ? (
                           <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                         ) : (
                           <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
                         )}
-                        <span className="flex-1">{dep.dependency.title}</span>
+                        <span className="flex-1 truncate">{dep.dependency.title}</span>
                         <Badge
                           variant="outline"
                           className={
@@ -635,15 +713,95 @@ export function TaskDetailModal({
                               : "border-amber-500/30 text-amber-600 bg-amber-500/10 text-xs"
                           }
                         >
-                          {dep.dependency.status === "done"
-                            ? "Done"
-                            : "Pending"}
+                          {dep.dependency.status === "done" ? "Done" : "Pending"}
                         </Badge>
+                        <button
+                          onClick={() => removeDependency.mutate(dep.dependency.id)}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-0.5 rounded"
+                          title="Remove dependency"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       </li>
                     ))}
                   </ul>
-                </section>
-              )}
+                )}
+
+                {/* Dependency picker */}
+                {showDepPicker && (
+                  <div className="border rounded-lg p-2 space-y-2 bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        autoFocus
+                        value={depSearch}
+                        onChange={(e) => setDepSearch(e.target.value)}
+                        placeholder="Search tasks to add as dependency..."
+                        className="h-8 text-sm"
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setShowDepPicker(false);
+                            setDepSearch("");
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          setShowDepPicker(false);
+                          setDepSearch("");
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {(() => {
+                        const existingDepIds = new Set(
+                          (task.dependencies ?? []).map((d) => d.dependency.id)
+                        );
+                        const q = depSearch.toLowerCase();
+                        const available = allTasks.filter(
+                          (t) =>
+                            t.id !== taskId &&
+                            !existingDepIds.has(t.id) &&
+                            (q === "" || t.title.toLowerCase().includes(q))
+                        );
+
+                        if (available.length === 0) {
+                          return (
+                            <p className="text-xs text-muted-foreground py-2 text-center">
+                              {depSearch ? "No matching tasks" : "No tasks available"}
+                            </p>
+                          );
+                        }
+
+                        return available.slice(0, 10).map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => addDependency.mutate(t.id)}
+                            className="w-full flex items-center gap-2 text-sm p-2 rounded-md hover:bg-muted transition-colors text-left"
+                          >
+                            <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span className="flex-1 truncate">{t.title}</span>
+                            <Badge variant="outline" className="text-[10px] shrink-0">
+                              {TASK_STATUSES.find((s) => s.value === t.status)?.label ?? t.status}
+                            </Badge>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {(!task.dependencies || task.dependencies.length === 0) && !showDepPicker && (
+                  <p className="text-sm text-muted-foreground italic">
+                    No dependencies. This task can start immediately.
+                  </p>
+                )}
+              </section>
 
               {/* Worktree / Start Work */}
               {!task.worktreePath && !isEditing && (

@@ -79,7 +79,8 @@ export function TaskCard({ task, projectId, onEdit, onDelete, onClick }: TaskCar
       onClick={handleClick}
       className={cn(
         "group cursor-grab rounded-lg border bg-card p-3 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-[2px] active:cursor-grabbing",
-        isDragging && "z-50 opacity-50 shadow-lg"
+        isDragging && "z-50 opacity-50 shadow-lg",
+        hasUnfinishedDeps && "opacity-60 border-dashed border-amber-500/40"
       )}
     >
       {/* Title row */}

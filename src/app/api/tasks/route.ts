@@ -25,7 +25,9 @@ export async function GET(request: NextRequest) {
       include: {
         epic: true,
         workstream: true,
-        dependencies: {
+        // "dependents" relation = TaskDependency records where this task is the dependentId
+        // i.e., "this task depends on dependency"
+        dependents: {
           include: {
             dependency: {
               select: { id: true, title: true, status: true },
@@ -35,7 +37,14 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(tasks);
+    // Rename "dependents" to "dependencies" for the frontend
+    // (Prisma's "dependents" relation = records where this task depends on others)
+    const mapped = tasks.map((t) => {
+      const { dependents, ...rest } = t as Record<string, unknown>;
+      return { ...rest, dependencies: dependents };
+    });
+
+    return NextResponse.json(mapped);
   } catch (error) {
     console.error("Failed to fetch tasks:", error);
     return NextResponse.json(
