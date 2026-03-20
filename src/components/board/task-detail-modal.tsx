@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -283,66 +283,18 @@ export function TaskDetailModal({
     if (!task?.worktreePath) return;
     setIsGeneratingCommitMsg(true);
     try {
-      // Get diff stats
-      const statusRes = await fetch("/api/worktree/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "status", worktreePath: task.worktreePath }),
-      });
-      const statusData = await statusRes.json();
-
-      // Generate commit message with Claude
-      const prompt = `Generate a concise git commit message (one line, max 72 chars) using conventional commits format (feat/fix/refactor/docs/etc) for these changes:
-
-Task: ${task.title}
-${task.description ? `Description: ${task.description}` : ""}
-
-Changed files:
-${statusData.status || "no changes"}
-
-${statusData.diffStat || ""}
-
-Return ONLY the commit message, nothing else. No quotes, no explanation.`;
-
-      const res = await fetch("/api/ideas/generate", {
+      const res = await fetch("/api/ai/commit-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectId,
-          projectDescription: prompt,
+          worktreePath: task.worktreePath,
+          taskTitle: task.title,
+          taskDescription: task.description,
         }),
       });
-
-      // This is SSE, but we just need the text
-      if (!res.ok) throw new Error("Failed to generate");
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response");
-
-      const decoder = new TextDecoder();
-      let accumulated = "";
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.text) accumulated += data.text;
-          } catch { /* skip */ }
-        }
-      }
-
-      // Clean up the response
-      const msg = accumulated.trim().replace(/^["']|["']$/g, "").split("\n")[0].trim();
-      if (msg) setCommitMessage(msg);
-    } catch (error) {
-      // Fallback to a simple generated message
+      const data = await res.json();
+      if (data.message) setCommitMessage(data.message);
+    } catch {
       setCommitMessage(`feat: ${task.title.toLowerCase()}`);
     } finally {
       setIsGeneratingCommitMsg(false);
@@ -442,9 +394,27 @@ Return ONLY the commit message, nothing else. No quotes, no explanation.`;
       setCommitMessage("");
       setCommitted(false);
       setMerged(false);
+      autoGenRef.current = false;
     }
     onOpenChange(o);
   };
+
+  // Auto-generate commit message when task is done
+  const autoGenRef = useRef(false);
+  useEffect(() => {
+    if (
+      open &&
+      task?.status === "done" &&
+      task.worktreePath &&
+      !committed &&
+      !commitMessage &&
+      !autoGenRef.current
+    ) {
+      autoGenRef.current = true;
+      generateCommitMessage();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, task?.status, task?.worktreePath, committed]);
 
   const acceptanceCriteria = task
     ? parseAcceptanceCriteria(task.acceptanceCriteria)
