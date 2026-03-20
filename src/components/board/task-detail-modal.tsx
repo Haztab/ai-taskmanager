@@ -803,49 +803,120 @@ export function TaskDetailModal({
                 )}
               </section>
 
-              {/* Worktree / Start Work */}
-              {!task.worktreePath && !isEditing && (
-                <section className="pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => {
-                      if (isBlocked) {
-                        toast.error("Blocked by unfinished dependencies");
-                        return;
-                      }
-                      createWorktree.mutate();
-                    }}
-                    disabled={createWorktree.isPending || isBlocked}
-                  >
-                    <GitBranch className="h-3.5 w-3.5" />
-                    {isBlocked
-                      ? "Blocked by Dependencies"
-                      : createWorktree.isPending
-                      ? "Creating Worktree..."
-                      : "Start Work (Create Worktree)"}
-                  </Button>
-                </section>
-              )}
-
-              {/* Open full page link */}
+              {/* Run Task / Status Actions */}
               {!isEditing && (
-                <section className="pt-2 border-t">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1.5 text-xs text-muted-foreground"
-                    onClick={() => {
-                      handleClose(false);
-                      router.push(
-                        `/projects/${projectId}/tasks/${taskId}`
-                      );
-                    }}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Open full page with terminal
-                  </Button>
+                <section className="pt-3 border-t space-y-3">
+                  {/* Status flow info */}
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span className="px-1.5 py-0.5 rounded bg-muted">Backlog</span>
+                    <span>→</span>
+                    <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">To Do</span>
+                    <span>→</span>
+                    <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">In Progress</span>
+                    <span>→</span>
+                    <span className="px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">Review</span>
+                    <span>→</span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">Done</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Primary action based on task state */}
+                    {isBlocked ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-amber-600 border-amber-300"
+                        disabled
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Blocked by Dependencies
+                      </Button>
+                    ) : !task.worktreePath ? (
+                      <Button
+                        size="sm"
+                        className="gap-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-sm"
+                        onClick={async () => {
+                          // Create worktree (auto-moves to in_progress)
+                          createWorktree.mutate(undefined, {
+                            onSuccess: () => {
+                              // Navigate to terminal page
+                              handleClose(false);
+                              router.push(`/projects/${projectId}/tasks/${taskId}`);
+                            },
+                          });
+                        }}
+                        disabled={createWorktree.isPending}
+                      >
+                        <GitBranch className="h-3.5 w-3.5" />
+                        {createWorktree.isPending ? "Setting up..." : "Run Task"}
+                      </Button>
+                    ) : task.status === "in_progress" ? (
+                      <Button
+                        size="sm"
+                        className="gap-1.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-sm"
+                        onClick={() => {
+                          handleClose(false);
+                          router.push(`/projects/${projectId}/tasks/${taskId}`);
+                        }}
+                      >
+                        <Terminal className="h-3.5 w-3.5" />
+                        Open Terminal
+                      </Button>
+                    ) : task.status === "review" ? (
+                      <Button
+                        size="sm"
+                        className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={async () => {
+                          await fetch(`/api/tasks/${taskId}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ status: "done" }),
+                          });
+                          queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+                          queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
+                          toast.success("Task marked as done!");
+                        }}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Mark as Done
+                      </Button>
+                    ) : task.status === "done" ? (
+                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 border">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Completed
+                      </Badge>
+                    ) : null}
+
+                    {/* Secondary: open terminal if worktree exists */}
+                    {task.worktreePath && task.status !== "done" && task.status !== "in_progress" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => {
+                          handleClose(false);
+                          router.push(`/projects/${projectId}/tasks/${taskId}`);
+                        }}
+                      >
+                        <Terminal className="h-3.5 w-3.5" />
+                        Open Terminal
+                      </Button>
+                    )}
+
+                    {/* Open full page */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-xs text-muted-foreground ml-auto"
+                      onClick={() => {
+                        handleClose(false);
+                        router.push(`/projects/${projectId}/tasks/${taskId}`);
+                      }}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Full Page
+                    </Button>
+                  </div>
                 </section>
               )}
             </>

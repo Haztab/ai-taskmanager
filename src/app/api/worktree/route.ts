@@ -44,9 +44,15 @@ export async function POST(request: NextRequest) {
       slug
     );
 
+    // Auto-move to in_progress when starting work
+    const newStatus =
+      task.status === "backlog" || task.status === "todo"
+        ? "in_progress"
+        : task.status;
+
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
-      data: { worktreePath, branchName },
+      data: { worktreePath, branchName, status: newStatus },
     });
 
     return NextResponse.json(

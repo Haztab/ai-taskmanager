@@ -45,6 +45,14 @@ const COLUMN_DOT_COLORS: Record<TaskStatus, string> = {
   done: "bg-emerald-500 dark:bg-emerald-400",
 };
 
+const COLUMN_DESCRIPTIONS: Record<TaskStatus, string> = {
+  backlog: "Tasks waiting to be planned and prioritized",
+  todo: "Ready to start — dependencies are met",
+  in_progress: "Actively being worked on",
+  review: "Completed work awaiting review or QA",
+  done: "Finished and verified",
+};
+
 const COLUMN_BADGE_COLORS: Record<TaskStatus, string> = {
   backlog: "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
   todo: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
@@ -117,33 +125,35 @@ export function KanbanColumn({
       <div className={cn("h-1 w-full", COLUMN_TOP_BAR[status])} />
 
       {/* Column header */}
-      <div className="flex items-center justify-between px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className={cn("size-2 rounded-full", COLUMN_DOT_COLORS[status])} />
-          <h3
-            className={cn(
-              "text-sm font-semibold",
-              COLUMN_HEADER_COLORS[status]
-            )}
+      <div className="px-3 py-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={cn("size-2 rounded-full", COLUMN_DOT_COLORS[status])} />
+            <h3
+              className={cn(
+                "text-sm font-semibold",
+                COLUMN_HEADER_COLORS[status]
+              )}
+            >
+              {title}
+            </h3>
+            <span className={cn(
+              "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
+              COLUMN_BADGE_COLORS[status]
+            )}>
+              {tasks.length}
+            </span>
+          </div>
+          <button
+            onClick={() => setIsAddingTask(true)}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground hover:bg-muted"
           >
-            {title}
-          </h3>
-          <span className={cn(
-            "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
-            COLUMN_BADGE_COLORS[status]
-          )}>
-            {tasks.length}
-          </span>
+            <PlusIcon className="size-4" />
+          </button>
         </div>
-        <button
-          onClick={() => setIsAddingTask(true)}
-          className={cn(
-            "rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground",
-            `hover:bg-${status === "backlog" ? "slate" : status === "todo" ? "blue" : status === "in_progress" ? "amber" : status === "review" ? "purple" : "emerald"}-100 dark:hover:bg-${status === "backlog" ? "slate" : status === "todo" ? "blue" : status === "in_progress" ? "amber" : status === "review" ? "purple" : "emerald"}-900/30`
-          )}
-        >
-          <PlusIcon className="size-4" />
-        </button>
+        <p className="text-[10px] text-muted-foreground mt-1 leading-tight">
+          {COLUMN_DESCRIPTIONS[status]}
+        </p>
       </div>
 
       {/* Task list */}

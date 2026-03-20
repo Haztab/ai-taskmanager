@@ -24,6 +24,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Header } from "@/components/layout/header";
 import { ClaudeTerminal } from "@/components/terminal/claude-terminal";
+import { FileChanges } from "@/components/terminal/file-changes";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -592,17 +593,33 @@ export default function TaskDetailPage() {
 
         <div className="w-px bg-border" />
 
-        {/* Right side - Claude Code Terminal */}
-        <div className="w-[500px] p-4">
+        {/* Center - Claude Code Terminal */}
+        <div className="flex-1 min-w-[400px] p-4">
           <ClaudeTerminal
             taskId={taskId}
             worktreePath={task.worktreePath}
             isBlocked={isBlocked}
             blockedBy={blockedByNames}
-            onSessionComplete={() => {
+            onSessionComplete={async () => {
+              // Auto-move to review when Claude session completes
+              if (task.status === "in_progress") {
+                await fetch(`/api/tasks/${taskId}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status: "review" }),
+                });
+              }
               queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+              queryClient.invalidateQueries({ queryKey: ["tasks", projectId] });
             }}
           />
+        </div>
+
+        <div className="w-px bg-border" />
+
+        {/* Right sidebar - File Changes */}
+        <div className="w-[280px] shrink-0">
+          <FileChanges worktreePath={task.worktreePath} />
         </div>
       </div>
     </div>
